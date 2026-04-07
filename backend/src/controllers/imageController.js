@@ -14,6 +14,7 @@ const ALLOWED_APARTMENT_TYPES = new Set([
   "3BR (3 Bedroom)",
   "4BR (4 Bedroom)",
 ]);
+const ALLOWED_APARTMENT_CONDITIONS = new Set(["trống", "bếp rèm", "full"]);
 
 const getSafeSimilarity = (a = [], b = []) => {
   if (!Array.isArray(a) || !Array.isArray(b) || a.length === 0 || b.length === 0) {
@@ -39,18 +40,35 @@ export const uploadImage = async (req, res) => {
       apartmentCode = "",
       saleName = "",
       apartmentType = "",
+      apartmentCondition = "",
       price = "",
     } = req.body;
-    const normalizedApartmentCode = apartmentCode.trim();
-    const normalizedSaleName = saleName.trim();
-    const normalizedApartmentType = apartmentType.trim();
-    const normalizedDescription = description.trim();
-    const normalizedPrice = price.trim();
+    const normalizedApartmentCode = String(apartmentCode ?? "").trim();
+    const normalizedSaleName = String(saleName ?? "").trim();
+    const normalizedApartmentType = String(apartmentType ?? "").trim();
+    const normalizedApartmentCondition = String(apartmentCondition ?? "").trim().toLowerCase();
+    const normalizedDescription = String(description ?? "").trim();
+    const normalizedPrice = String(price ?? "").trim();
+
+    if (!normalizedApartmentCode) {
+      return res.status(400).json({ error: "apartmentCode is required" });
+    }
+    if (!normalizedSaleName) {
+      return res.status(400).json({ error: "saleName is required" });
+    }
+    if (!normalizedPrice) {
+      return res.status(400).json({ error: "price is required" });
+    }
 
     if (!ALLOWED_APARTMENT_TYPES.has(normalizedApartmentType)) {
       return res.status(400).json({
         error:
           "apartmentType must be one of: 1BR (1 Bedroom), 2BR (2 Bedroom), 3BR (3 Bedroom), 4BR (4 Bedroom)",
+      });
+    }
+    if (!ALLOWED_APARTMENT_CONDITIONS.has(normalizedApartmentCondition)) {
+      return res.status(400).json({
+        error: "apartmentCondition must be one of: trống, bếp rèm, full",
       });
     }
 
@@ -62,6 +80,7 @@ export const uploadImage = async (req, res) => {
         normalizedApartmentCode,
         normalizedSaleName,
         normalizedApartmentType,
+        normalizedApartmentCondition,
         normalizedPrice,
       ]
         .filter(Boolean)
@@ -82,6 +101,7 @@ export const uploadImage = async (req, res) => {
       apartmentCode: normalizedApartmentCode,
       saleName: normalizedSaleName,
       apartmentType: normalizedApartmentType,
+      apartmentCondition: normalizedApartmentCondition,
       price: normalizedPrice,
       tags: parsedTags,
       embedding,
@@ -120,6 +140,7 @@ export const searchImages = async (req, res) => {
         { apartmentCode: { $regex: query, $options: "i" } },
         { saleName: { $regex: query, $options: "i" } },
         { apartmentType: { $regex: query, $options: "i" } },
+        { apartmentCondition: { $regex: query, $options: "i" } },
         { price: { $regex: query, $options: "i" } },
         { tags: { $in: tagCandidates } },
       ],

@@ -27,6 +27,11 @@ const imageSchema = new mongoose.Schema(
       default: "",
       trim: true,
     },
+    apartmentCondition: {
+      type: String,
+      default: "",
+      trim: true,
+    },
     price: {
       type: String,
       default: "",

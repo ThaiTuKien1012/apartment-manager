@@ -18,14 +18,19 @@ app.get("/", (_req, res) => {
   res.json({
     message: "Welcome to AI Image Retrieval API",
     docs: "/api-docs",
+    images: "/api/images",
   });
 });
 
-app.use("/api/images", imageRoutes);
+// Một router mount tại /api — URL cuối cùng: /api/images, /api/images/upload, ...
+app.use("/api", imageRoutes);
 setupSwagger(app);
 
-connectDB().then(() => {
-  app.listen(port, () => {
-    console.log(`Server running on port ${port}`);
-  });
+connectDB().catch((error) => {
+  console.error("MongoDB connection failed:", error.message);
+  console.error("Server vẫn chạy — sửa MONGO_URI trong backend/.env rồi restart.");
+});
+
+app.listen(port, () => {
+  console.log(`Server running on port ${port}`);
 });

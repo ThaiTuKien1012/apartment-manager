@@ -1,12 +1,19 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import ApartmentDetailPage from "./ApartmentDetailPage.jsx";
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
+/** Mặc định gọi thẳng backend (port 5000). Override: tạo `frontend/.env` với VITE_API_BASE_URL=http://... */
+const API_BASE_URL = (() => {
+  const fromEnv = import.meta.env.VITE_API_BASE_URL;
+  if (fromEnv) return String(fromEnv).replace(/\/$/, "");
+  return "http://localhost:5000";
+})();
 const APARTMENT_TYPES = [
   "1BR (1 Bedroom)",
   "2BR (2 Bedroom)",
   "3BR (3 Bedroom)",
   "4BR (4 Bedroom)",
 ];
+const APARTMENT_CONDITIONS = ["trống", "bếp rèm", "full"];
 
 const toAssetUrl = (url) => {
   if (!url) return "";
@@ -14,7 +21,9 @@ const toAssetUrl = (url) => {
   const normalized = String(url).replace(/\\/g, "/");
   const uploadsIndex = normalized.indexOf("uploads/");
   const relative = uploadsIndex >= 0 ? normalized.slice(uploadsIndex) : normalized;
-  return `${API_BASE_URL}/${relative}`.replace(/([^:]\/)\/+/g, "$1");
+  const base = API_BASE_URL || "";
+  const prefix = base ? `${base}/` : "/";
+  return `${prefix}${relative}`.replace(/([^:]\/)\/+/g, "$1");
 };
 
 const toRelativeTime = (value) => {
@@ -30,36 +39,73 @@ const toRelativeTime = (value) => {
   return `Updated ${diffDay} day${diffDay > 1 ? "s" : ""} ago`;
 };
 
+/** Ngày đăng sớm nhất (ảnh đầu tiên trong nhóm). */
+const formatPostedDate = (value) => {
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleDateString("vi-VN", { day: "2-digit", month: "short", year: "numeric" });
+};
+
+const earliestTimestamp = (items) => {
+  let min = null;
+  for (const img of items) {
+    const t = new Date(img.createdAt || img.updatedAt || 0).getTime();
+    if (Number.isNaN(t)) continue;
+    min = min === null ? t : Math.min(min, t);
+  }
+  return min;
+};
+
 const mapToApartments = (images) => {
   const grouped = new Map();
   images.forEach((img) => {
-    const key = img.apartmentCode || img._id;
+    const code = String(img.apartmentCode ?? "").trim();
+    const key = code || String(img._id ?? "");
     if (!grouped.has(key)) grouped.set(key, []);
     grouped.get(key).push(img);
   });
 
   return Array.from(grouped.entries()).map(([key, items]) => {
-    const latest = [...items].sort(
+    const sortedItems = [...items].sort(
       (a, b) => new Date(b.updatedAt || b.createdAt || 0) - new Date(a.updatedAt || a.createdAt || 0),
-    )[0];
+    );
+    const latest = sortedItems[0];
     const name = latest.apartmentCode || key;
     const suffix = latest.apartmentType ? ` - ${latest.apartmentType}` : "";
+    const firstPostTs = earliestTimestamp(items);
     return {
       id: key,
       name: `${name}${suffix}`,
       photos: `${items.length} photos`,
       updated: toRelativeTime(latest.updatedAt || latest.createdAt),
+      postedDate: firstPostTs != null ? formatPostedDate(firstPostTs) : "—",
       image: toAssetUrl(latest.url),
       featured: false,
       price: latest.price || "",
       saleName: latest.saleName || "",
+      items: sortedItems,
     };
   });
 };
 
-function ApartmentCard({ apartment }) {
+function ApartmentCard({ apartment, onOpenGallery, onUploadMore }) {
+  const openDetail = () => onOpenGallery?.(apartment);
+
+  const onCardKeyDown = (e) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      openDetail();
+    }
+  };
+
   return (
-    <div className="group overflow-hidden rounded-xl bg-surface-container-lowest shadow-sm transition-all duration-300 hover:scale-[1.02] hover:shadow-xl hover:shadow-slate-200/50">
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={openDetail}
+      onKeyDown={onCardKeyDown}
+      className="group cursor-pointer overflow-hidden rounded-xl bg-surface-container-lowest shadow-sm transition-all duration-300 hover:scale-[1.02] hover:shadow-xl hover:shadow-slate-200/50 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
+    >
       <div className="relative aspect-[16/10] overflow-hidden">
         <img className="h-full w-full object-cover transition-transform duration-700 group-hover:scale-110" src={apartment.image} alt={apartment.name} />
         {apartment.featured ? (
@@ -76,50 +122,66 @@ function ApartmentCard({ apartment }) {
               <span className="material-symbols-outlined text-base text-on-surface-variant">photo_library</span>
               <span className="text-sm text-on-surface-variant">{apartment.photos}</span>
             </div>
+            <div className="mt-1.5 flex items-center gap-1.5 text-xs text-on-surface-variant">
+              <span className="material-symbols-outlined text-[16px] text-on-surface-variant/80">calendar_today</span>
+              <span>
+                Đăng: <span className="font-medium text-on-surface">{apartment.postedDate}</span>
+              </span>
+            </div>
           </div>
-          <button className="rounded-full p-2 text-on-surface-variant transition-colors hover:bg-slate-100">
+          <button
+            type="button"
+            onClick={(e) => e.stopPropagation()}
+            className="rounded-full p-2 text-on-surface-variant transition-colors hover:bg-slate-100"
+          >
             <span className="material-symbols-outlined">edit</span>
           </button>
         </div>
-        <div className="flex items-center justify-between border-t border-surface-container pt-4">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-surface-container pt-4">
           <span className="text-xs font-medium text-on-surface-variant">{apartment.updated}</span>
-          <div className="flex gap-2">
-            <button className="rounded-full px-4 py-2 text-xs font-bold text-primary transition-colors hover:bg-primary-container">UPLOAD MORE</button>
-            <button className="rounded-full bg-secondary-container px-4 py-2 text-xs font-bold text-on-secondary-container transition-colors hover:bg-slate-200">
-              OPEN GALLERY
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onUploadMore?.(apartment);
+            }}
+            className="rounded-full px-4 py-2 text-xs font-bold text-primary transition-colors hover:bg-primary-container"
+          >
+            UPLOAD MORE
+          </button>
         </div>
       </div>
     </div>
   );
 }
 
-function ManagePage({ apartments, loading, error, onRefresh, onOpenUpload }) {
+function ManagePage({ apartments, loading, error, onRefresh, onOpenUpload, onOpenGallery, onUploadMoreFromCard }) {
   return (
-    <main className="mt-20 max-w-7xl p-10">
-      <div className="mb-12 flex items-end justify-between">
-        <div>
+    <main className="mx-auto mt-20 w-full max-w-7xl px-8 pb-16 pt-2">
+      <div className="mb-10 flex flex-col gap-6 sm:mb-12 lg:flex-row lg:items-end lg:justify-between lg:gap-8">
+        <div className="min-w-0 flex-1">
           <h1 className="mb-2 text-4xl font-extrabold tracking-tight text-on-surface">Managed Apartments</h1>
-          <p className="max-w-md leading-relaxed text-on-surface-variant">
+          <p className="max-w-xl leading-relaxed text-on-surface-variant">
             Organize and curate your premium architectural portfolio. Manage metadata and galleries for all active listings.
           </p>
         </div>
         <button
+          type="button"
           onClick={onOpenUpload}
-          className="flex items-center gap-2 rounded-full bg-primary px-8 py-4 font-semibold text-on-primary shadow-xl shadow-primary/10 transition-all duration-300 hover:-translate-y-[2px]"
+          className="flex shrink-0 items-center justify-center gap-2 self-start rounded-full bg-primary px-8 py-4 font-semibold text-on-primary shadow-xl shadow-primary/10 transition-all duration-300 hover:-translate-y-[2px] lg:self-auto"
         >
           <span className="material-symbols-outlined">add_business</span>
           Add New Apartment
         </button>
       </div>
 
-      <div className="mb-8 flex items-center gap-4">
+      <div className="mb-8 flex flex-wrap items-center gap-4">
         <div className="rounded-full bg-surface-container-lowest px-6 py-2 text-sm font-medium text-primary shadow-sm">
           All ({apartments.length})
         </div>
-        <div className="ml-auto flex items-center gap-2 text-on-surface-variant">
+        <div className="ml-auto flex shrink-0 items-center gap-2 text-on-surface-variant">
           <button
+            type="button"
             onClick={onRefresh}
             className="flex items-center gap-1 rounded-full border border-surface-container px-4 py-2 text-sm font-semibold text-on-surface"
           >
@@ -139,7 +201,12 @@ function ManagePage({ apartments, loading, error, onRefresh, onOpenUpload }) {
       ) : (
         <div className="grid grid-cols-1 gap-8 md:grid-cols-2 lg:grid-cols-3">
           {apartments.map((apartment) => (
-            <ApartmentCard key={apartment.id} apartment={apartment} />
+            <ApartmentCard
+              key={apartment.id}
+              apartment={apartment}
+              onOpenGallery={onOpenGallery}
+              onUploadMore={onUploadMoreFromCard}
+            />
           ))}
         </div>
       )}
@@ -174,6 +241,7 @@ function UploadPage({ onUploaded }) {
   const [saleName, setSaleName] = useState("");
   const [price, setPrice] = useState("");
   const [apartmentType, setApartmentType] = useState(APARTMENT_TYPES[0]);
+  const [apartmentCondition, setApartmentCondition] = useState(APARTMENT_CONDITIONS[0]);
   const [files, setFiles] = useState([]);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState("");
@@ -207,15 +275,16 @@ function UploadPage({ onUploaded }) {
     apartmentCode.trim() &&
     saleName.trim() &&
     price.trim() &&
-    apartmentType.trim();
+    apartmentType.trim() &&
+    apartmentCondition.trim();
   const canSubmit = Boolean(hasRequiredInfo && files.length > 0 && !submitting);
 
   const submitForm = async () => {
     setSubmitError("");
     setSubmitSuccess("");
 
-    if (!apartmentCode.trim() || !saleName.trim() || !price.trim() || !apartmentType.trim()) {
-      setSubmitError("Vui lòng nhập đầy đủ Mã căn hộ, Tên sales, Giá tiền, Loại căn hộ.");
+    if (!apartmentCode.trim() || !saleName.trim() || !price.trim() || !apartmentType.trim() || !apartmentCondition.trim()) {
+      setSubmitError("Vui lòng nhập đầy đủ Mã căn hộ, Tên sales, Giá tiền, Loại căn hộ, Loại căn.");
       return;
     }
 
@@ -229,12 +298,15 @@ function UploadPage({ onUploaded }) {
       await Promise.all(
         files.map(async (file) => {
           const formData = new FormData();
-          formData.append("image", file);
+          // Đặt field text trước file — nếu không Multer/Express có thể không gán vào req.body,
+          // khiến apartmentCode rỗng và mỗi ảnh bị group theo _id (mỗi card 1 hình).
           formData.append("apartmentCode", apartmentCode.trim());
           formData.append("saleName", saleName.trim());
           formData.append("price", price.trim());
           formData.append("apartmentType", apartmentType.trim());
+          formData.append("apartmentCondition", apartmentCondition.trim());
           formData.append("description", `${apartmentCode.trim()} - ${apartmentType.trim()}`);
+          formData.append("image", file, file.name);
 
           const response = await fetch(`${API_BASE_URL}/api/images/upload`, {
             method: "POST",
@@ -260,9 +332,9 @@ function UploadPage({ onUploaded }) {
 
   return (
     <>
-      <main className="mt-20 w-full max-w-7xl flex-1 p-10">
-        <div className="grid grid-cols-1 gap-10 lg:grid-cols-12">
-          <section className="space-y-8 lg:col-span-5">
+      <main className="mx-auto mt-20 w-full max-w-7xl flex-1 px-8 pb-32 pt-2">
+        <div className="grid grid-cols-1 gap-10 lg:grid-cols-2 lg:gap-12">
+          <section className="space-y-8 lg:min-w-0">
             <div className="flex flex-col gap-2">
               <h2 className="text-3xl font-bold tracking-tight text-on-background">Property Details</h2>
               <p className="text-on-surface-variant">Enter the fundamental specifications of the listing.</p>
@@ -316,6 +388,23 @@ function UploadPage({ onUploaded }) {
                   </span>
                 </div>
               </div>
+              <div className="space-y-2">
+                <label className="ml-1 text-xs font-semibold uppercase tracking-widest text-on-surface-variant">Loại căn</label>
+                <div className="relative">
+                  <select
+                    className="w-full appearance-none cursor-pointer rounded-full border-none bg-surface-container-high px-6 py-4 text-on-surface transition-all focus:bg-surface-container-lowest focus:ring-2 focus:ring-primary"
+                    value={apartmentCondition}
+                    onChange={(e) => setApartmentCondition(e.target.value)}
+                  >
+                    {APARTMENT_CONDITIONS.map((condition) => (
+                      <option key={condition}>{condition}</option>
+                    ))}
+                  </select>
+                  <span className="material-symbols-outlined pointer-events-none absolute right-5 top-1/2 -translate-y-1/2 text-outline">
+                    expand_more
+                  </span>
+                </div>
+              </div>
             </div>
             <div className="flex items-start gap-4 rounded-xl border border-primary-container/50 bg-primary-container/30 p-6">
               <span className="material-symbols-outlined text-primary">info</span>
@@ -325,17 +414,17 @@ function UploadPage({ onUploaded }) {
             </div>
           </section>
 
-          <section className="space-y-8 lg:col-span-7">
+          <section className="flex flex-col space-y-8 lg:min-w-0">
             <div className="flex flex-col gap-2">
               <h2 className="text-3xl font-bold tracking-tight text-on-background">Visual Assets</h2>
               <p className="text-on-surface-variant">Drag high-resolution photography here to begin the gallery creation.</p>
             </div>
 
-            <div className="group relative">
+            <div className="group relative flex min-h-[20rem] flex-1 flex-col">
               <input ref={inputRef} type="file" accept="image/*" multiple className="hidden" onChange={onSelectFiles} />
               <div
                 onClick={() => inputRef.current?.click()}
-                className="flex h-80 w-full cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-outline-variant/30 bg-surface-container-low p-10 text-center transition-colors hover:bg-surface-container"
+                className="flex min-h-[20rem] w-full flex-1 cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-outline-variant/30 bg-surface-container-low p-10 text-center transition-colors hover:bg-surface-container"
               >
                 <div className="mb-6 flex h-20 w-20 items-center justify-center rounded-full bg-white shadow-sm transition-transform duration-300 group-hover:scale-110">
                   <span className="material-symbols-outlined text-4xl text-primary">cloud_upload</span>
@@ -397,8 +486,8 @@ function UploadPage({ onUploaded }) {
         </div>
       </main>
 
-      <footer className="sticky bottom-0 z-40 w-full border-t border-slate-100 bg-white/80 p-6 backdrop-blur-xl">
-        <div className="mx-auto flex max-w-7xl items-center justify-end gap-4">
+      <footer className="sticky bottom-0 z-40 w-full border-t border-slate-100 bg-white/80 px-8 py-4 backdrop-blur-xl">
+        <div className="mx-auto flex w-full max-w-7xl items-center justify-end gap-4">
           <button onClick={clearFiles} className="rounded-full px-8 py-3 text-sm font-semibold text-on-surface transition-all hover:bg-slate-100">
             Hủy
           </button>
@@ -418,14 +507,16 @@ function UploadPage({ onUploaded }) {
 
 export default function App() {
   const [activePage, setActivePage] = useState("apartments");
+  const [detailApartment, setDetailApartment] = useState(null);
   const [images, setImages] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  const pageTitle = useMemo(
-    () => (activePage === "uploads" ? "Upload New Property" : "Managed Apartments"),
-    [activePage],
-  );
+  const pageTitle = useMemo(() => {
+    if (detailApartment) return detailApartment.name;
+    if (activePage === "uploads") return "Upload New Property";
+    return "Managed Apartments";
+  }, [detailApartment, activePage]);
 
   const apartments = useMemo(() => mapToApartments(images), [images]);
 
@@ -433,12 +524,23 @@ export default function App() {
     setLoading(true);
     setError("");
     try {
-      const response = await fetch(`${API_BASE_URL}/api/images`);
-      if (!response.ok) throw new Error("Không tải được dữ liệu từ backend.");
+      const url = `${API_BASE_URL}/api/images`.replace(/([^:]\/)\/+/g, "$1");
+      const response = await fetch(url);
+      if (!response.ok) {
+        const body = await response.text();
+        throw new Error(
+          `Không tải được dữ liệu (${response.status}). ` +
+            `${body ? body.slice(0, 200) : "Kiểm tra backend đã chạy (npm run dev trong backend) và đúng cổng 5000."}`,
+        );
+      }
       const data = await response.json();
       setImages(Array.isArray(data) ? data : []);
     } catch (fetchError) {
-      setError(fetchError.message);
+      const msg =
+        fetchError instanceof TypeError && fetchError.message === "Failed to fetch"
+          ? "Không kết nối được backend. Chạy backend: cd backend && npm run dev — rồi restart frontend (npm run dev)."
+          : fetchError.message;
+      setError(msg);
     } finally {
       setLoading(false);
     }
@@ -447,6 +549,24 @@ export default function App() {
   useEffect(() => {
     fetchImages();
   }, []);
+
+  const openedApartmentFromQuery = useRef(false);
+  useEffect(() => {
+    if (openedApartmentFromQuery.current || apartments.length === 0) return;
+    let code = null;
+    try {
+      code = new URLSearchParams(window.location.search).get("apartment");
+    } catch {
+      return;
+    }
+    if (!code) return;
+    const match = apartments.find((a) => String(a.id) === code);
+    if (match) {
+      setActivePage("apartments");
+      setDetailApartment(match);
+      openedApartmentFromQuery.current = true;
+    }
+  }, [apartments]);
 
   return (
     <div className="bg-surface text-on-surface">
@@ -457,14 +577,13 @@ export default function App() {
         </div>
 
         <nav className="flex-1 space-y-1">
-          <a className="flex items-center px-8 py-3 text-sm font-medium text-slate-500 transition-transform duration-200 hover:translate-x-1 hover:text-cyan-600" href="#">
-            <span className="material-symbols-outlined mr-3">dashboard</span>
-            Dashboard
-          </a>
           <button
-            onClick={() => setActivePage("apartments")}
+            onClick={() => {
+              setDetailApartment(null);
+              setActivePage("apartments");
+            }}
             className={`flex w-full items-center px-8 py-3 text-sm transition-transform duration-200 ${
-              activePage === "apartments"
+              activePage === "apartments" && !detailApartment
                 ? "translate-x-1 rounded-r-full bg-white font-semibold text-cyan-700 shadow-sm"
                 : "font-medium text-slate-500 hover:translate-x-1 hover:text-cyan-600"
             }`}
@@ -473,7 +592,10 @@ export default function App() {
             Apartments
           </button>
           <button
-            onClick={() => setActivePage("uploads")}
+            onClick={() => {
+              setDetailApartment(null);
+              setActivePage("uploads");
+            }}
             className={`flex w-full items-center px-8 py-3 text-sm transition-transform duration-200 ${
               activePage === "uploads"
                 ? "translate-x-1 rounded-r-full bg-white font-semibold text-cyan-700 shadow-sm"
@@ -483,19 +605,14 @@ export default function App() {
             <span className="material-symbols-outlined mr-3">cloud_upload</span>
             Uploads
           </button>
-          <a className="flex items-center px-8 py-3 text-sm font-medium text-slate-500 transition-transform duration-200 hover:translate-x-1 hover:text-cyan-600" href="#">
-            <span className="material-symbols-outlined mr-3">photo_library</span>
-            Photo Library
-          </a>
-          <a className="flex items-center px-8 py-3 text-sm font-medium text-slate-500 transition-transform duration-200 hover:translate-x-1 hover:text-cyan-600" href="#">
-            <span className="material-symbols-outlined mr-3">analytics</span>
-            Analytics
-          </a>
         </nav>
 
         <div className="mb-8 px-6">
           <button
-            onClick={() => setActivePage("uploads")}
+            onClick={() => {
+              setDetailApartment(null);
+              setActivePage("uploads");
+            }}
             className="flex w-full items-center justify-center gap-2 rounded-full bg-primary px-4 py-3 text-sm font-medium text-on-primary shadow-lg shadow-primary/20 transition-transform duration-200 hover:scale-105"
           >
             <span className="material-symbols-outlined text-lg">add</span>
@@ -515,10 +632,11 @@ export default function App() {
         </div>
       </aside>
 
-      <div className="ml-64 flex min-h-screen flex-col">
-        <header className="fixed left-64 right-0 top-0 z-50 flex items-center justify-between bg-white/70 px-8 py-4 tracking-tight backdrop-blur-md">
-          <div className="flex w-1/2 items-center gap-6">
-            <h1 className="text-xl font-bold tracking-tight text-cyan-800">{pageTitle}</h1>
+      {/* pl-64 thay cho ml-64 + width calc — tránh lệch/tràn ngang; nội dung nằm đúng vùng còn lại sau sidebar */}
+      <div className="flex min-h-screen w-full min-w-0 flex-col pl-64">
+        <header className="fixed left-64 right-0 top-0 z-50 flex items-center justify-between gap-4 bg-white/70 px-8 py-4 tracking-tight backdrop-blur-md">
+          <div className="min-w-0 flex-1">
+            <h1 className="truncate text-xl font-bold tracking-tight text-cyan-800">{pageTitle}</h1>
           </div>
 
           <div className="flex items-center gap-4">
@@ -537,7 +655,17 @@ export default function App() {
             </div>
           </div>
         </header>
-        {activePage === "uploads" ? (
+        {detailApartment ? (
+          <ApartmentDetailPage
+            apartment={detailApartment}
+            apiBaseUrl={API_BASE_URL}
+            onBack={() => setDetailApartment(null)}
+            onUploadMore={() => {
+              setDetailApartment(null);
+              setActivePage("uploads");
+            }}
+          />
+        ) : activePage === "uploads" ? (
           <UploadPage onUploaded={fetchImages} />
         ) : (
           <ManagePage
@@ -545,7 +673,15 @@ export default function App() {
             loading={loading}
             error={error}
             onRefresh={fetchImages}
-            onOpenUpload={() => setActivePage("uploads")}
+            onOpenUpload={() => {
+              setDetailApartment(null);
+              setActivePage("uploads");
+            }}
+            onOpenGallery={(a) => setDetailApartment(a)}
+            onUploadMoreFromCard={() => {
+              setDetailApartment(null);
+              setActivePage("uploads");
+            }}
           />
         )}
       </div>

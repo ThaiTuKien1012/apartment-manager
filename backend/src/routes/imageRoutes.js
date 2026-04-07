@@ -1,13 +1,12 @@
 import express from "express";
-import {
-  getAllImages,
-  uploadImage,
-  searchByAI,
-  searchImages,
-} from "../controllers/imageController.js";
+import { getAllImages, uploadImage, searchByAI, searchImages } from "../controllers/imageController.js";
 import { upload } from "../utils/upload.js";
 
 const router = express.Router();
+
+router.get("/health", (_req, res) => {
+  res.json({ ok: true, ts: new Date().toISOString() });
+});
 
 /**
  * @swagger
@@ -25,7 +24,7 @@ const router = express.Router();
  *               items:
  *                 $ref: '#/components/schemas/Image'
  */
-router.get("/", getAllImages);
+router.get("/images", getAllImages);
 
 /**
  * @swagger
@@ -56,6 +55,9 @@ router.get("/", getAllImages);
  *               apartmentType:
  *                 type: string
  *                 example: 2BR (2 Bedroom)
+ *               apartmentCondition:
+ *                 type: string
+ *                 example: bếp rèm
  *               price:
  *                 type: string
  *                 example: 2.000.000.000
@@ -70,7 +72,7 @@ router.get("/", getAllImages);
  *             schema:
  *               $ref: '#/components/schemas/Image'
  */
-router.post("/upload", upload.single("image"), uploadImage);
+router.post("/images/upload", upload.single("image"), uploadImage);
 
 /**
  * @swagger
@@ -94,7 +96,7 @@ router.post("/upload", upload.single("image"), uploadImage);
  *               items:
  *                 $ref: '#/components/schemas/Image'
  */
-router.get("/search", searchImages);
+router.get("/images/search", searchImages);
 
 /**
  * @swagger
@@ -120,6 +122,6 @@ router.get("/search", searchImages);
  *       200:
  *         description: Ranked images by score
  */
-router.post("/search-ai", searchByAI);
+router.post("/images/search-ai", searchByAI);
 
 export default router;

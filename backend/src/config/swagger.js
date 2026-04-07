@@ -25,6 +25,7 @@ const options = {
             apartmentCode: { type: "string" },
             saleName: { type: "string" },
             apartmentType: { type: "string" },
+            apartmentCondition: { type: "string" },
             price: { type: "string" },
             tags: {
               type: "array",
