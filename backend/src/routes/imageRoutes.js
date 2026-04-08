@@ -1,5 +1,7 @@
 import express from "express";
+import { suggestListing } from "../controllers/aiListingController.js";
 import { getAllImages, uploadImage, searchByAI, searchImages } from "../controllers/imageController.js";
+import { aiImagesUpload } from "../utils/aiUpload.js";
 import { upload } from "../utils/upload.js";
 
 const router = express.Router();
@@ -73,6 +75,9 @@ router.get("/images", getAllImages);
  *               $ref: '#/components/schemas/Image'
  */
 router.post("/images/upload", upload.single("image"), uploadImage);
+
+/** Gemini: gợi ý điền form upload từ ghi chú + tối đa 4 ảnh (multipart: notes + images[]) */
+router.post("/ai/suggest-listing", aiImagesUpload.array("images", 4), suggestListing);
 
 /**
  * @swagger

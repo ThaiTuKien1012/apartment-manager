@@ -237,6 +237,10 @@ function ManagePage({ apartments, loading, error, onRefresh, onOpenUpload, onOpe
 
 function UploadPage({ onUploaded }) {
   const inputRef = useRef(null);
+  const [aiNotes, setAiNotes] = useState("");
+  const [listingDescription, setListingDescription] = useState("");
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState("");
   const [apartmentCode, setApartmentCode] = useState("");
   const [saleName, setSaleName] = useState("");
   const [price, setPrice] = useState("");
@@ -278,6 +282,48 @@ function UploadPage({ onUploaded }) {
     apartmentType.trim() &&
     apartmentCondition.trim();
   const canSubmit = Boolean(hasRequiredInfo && files.length > 0 && !submitting);
+  const canRunGemini = Boolean((aiNotes.trim() || files.length > 0) && !aiLoading && !submitting);
+
+  const fillFormFromGemini = async () => {
+    setAiError("");
+    if (!aiNotes.trim() && files.length === 0) {
+      setAiError("Nhập ghi chú hoặc chọn ảnh trước khi gọi Gemini.");
+      return;
+    }
+    setAiLoading(true);
+    try {
+      const formData = new FormData();
+      formData.append("notes", aiNotes.trim());
+      files.forEach((file) => formData.append("images", file, file.name));
+
+      const response = await fetch(`${API_BASE_URL}/api/ai/suggest-listing`, {
+        method: "POST",
+        body: formData,
+      });
+      const raw = await response.text();
+      let data = {};
+      try {
+        data = raw ? JSON.parse(raw) : {};
+      } catch {
+        data = { error: raw ? raw.replace(/<[^>]+>/g, " ").slice(0, 280).trim() : "" };
+      }
+      if (!response.ok) {
+        throw new Error(data.error || `Gemini lỗi (${response.status})`);
+      }
+      setApartmentCode(String(data.apartmentCode ?? ""));
+      setSaleName(String(data.saleName ?? ""));
+      setPrice(String(data.price ?? ""));
+      setApartmentType(APARTMENT_TYPES.includes(data.apartmentType) ? data.apartmentType : APARTMENT_TYPES[1]);
+      setApartmentCondition(
+        APARTMENT_CONDITIONS.includes(data.apartmentCondition) ? data.apartmentCondition : APARTMENT_CONDITIONS[0],
+      );
+      setListingDescription(String(data.description ?? ""));
+    } catch (err) {
+      setAiError(err instanceof Error ? err.message : "Không gọi được Gemini.");
+    } finally {
+      setAiLoading(false);
+    }
+  };
 
   const submitForm = async () => {
     setSubmitError("");
@@ -305,7 +351,10 @@ function UploadPage({ onUploaded }) {
           formData.append("price", price.trim());
           formData.append("apartmentType", apartmentType.trim());
           formData.append("apartmentCondition", apartmentCondition.trim());
-          formData.append("description", `${apartmentCode.trim()} - ${apartmentType.trim()}`);
+          formData.append(
+            "description",
+            listingDescription.trim() || `${apartmentCode.trim()} - ${apartmentType.trim()}`,
+          );
           formData.append("image", file, file.name);
 
           const response = await fetch(`${API_BASE_URL}/api/images/upload`, {
@@ -339,6 +388,32 @@ function UploadPage({ onUploaded }) {
               <h2 className="text-3xl font-bold tracking-tight text-on-background">Property Details</h2>
               <p className="text-on-surface-variant">Enter the fundamental specifications of the listing.</p>
             </div>
+
+            <div className="space-y-3 rounded-xl border border-outline-variant/20 bg-surface-container-lowest p-6 shadow-sm">
+              <label className="ml-1 text-xs font-semibold uppercase tracking-widest text-on-surface-variant">
+                Ghi chú cho AI (Gemini)
+              </label>
+              <textarea
+                className="w-full min-h-[9rem] resize-y rounded-2xl border border-outline-variant/30 bg-surface-container-high px-4 py-3 text-sm text-on-surface placeholder:text-outline-variant focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30"
+                placeholder={`Dự án: VHCP\n- Mã căn: P4-03.07\n- Giá: 60 triệu Net\n- ...`}
+                value={aiNotes}
+                onChange={(e) => setAiNotes(e.target.value)}
+              />
+              <div className="flex flex-wrap items-center gap-3">
+                <button
+                  type="button"
+                  disabled={!canRunGemini}
+                  onClick={() => void fillFormFromGemini()}
+                  className="flex items-center gap-2 rounded-full bg-primary px-5 py-2.5 text-sm font-semibold text-on-primary shadow-sm transition-opacity disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <span className="material-symbols-outlined text-lg">auto_awesome</span>
+                  {aiLoading ? "Đang gọi Gemini..." : "Điền form bằng Gemini"}
+                </button>
+                <span className="text-xs text-on-surface-variant">Cần API key: backend/.env → GEMINI_API_KEY</span>
+              </div>
+              {aiError ? <p className="text-sm text-error">{aiError}</p> : null}
+            </div>
+
             <div className="space-y-6 rounded-xl bg-surface-container-low p-8">
               <div className="space-y-2">
                 <label className="ml-1 text-xs font-semibold uppercase tracking-widest text-on-surface-variant">Mã căn hộ</label>
@@ -405,11 +480,22 @@ function UploadPage({ onUploaded }) {
                   </span>
                 </div>
               </div>
+              <div className="space-y-2">
+                <label className="ml-1 text-xs font-semibold uppercase tracking-widest text-on-surface-variant">
+                  Mô tả lưu kèm ảnh
+                </label>
+                <textarea
+                  className="w-full min-h-[6rem] resize-y rounded-2xl border-none bg-surface-container-high px-4 py-3 text-sm text-on-surface placeholder:text-outline-variant focus:bg-surface-container-lowest focus:ring-2 focus:ring-primary"
+                  placeholder="Mô tả đầy đủ (dự án, view, tình trạng…). Để trống sẽ dùng: Mã căn · Loại căn hộ."
+                  value={listingDescription}
+                  onChange={(e) => setListingDescription(e.target.value)}
+                />
+              </div>
             </div>
             <div className="flex items-start gap-4 rounded-xl border border-primary-container/50 bg-primary-container/30 p-6">
               <span className="material-symbols-outlined text-primary">info</span>
               <p className="text-sm leading-relaxed text-on-primary-container">
-                AI classification will automatically identify rooms, lighting quality, and architectural features once assets are uploaded.
+                Gemini có thể điền form từ ghi chú + ảnh đã chọn. Thêm <span className="font-mono text-xs">GEMINI_API_KEY</span> trong backend/.env (Google AI Studio, free tier).
               </p>
             </div>
           </section>

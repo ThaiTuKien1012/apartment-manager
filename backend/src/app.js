@@ -26,6 +26,28 @@ app.get("/", (_req, res) => {
 app.use("/api", imageRoutes);
 setupSwagger(app);
 
+/** Multer (file too large / quá nhiều file) mặc định trả HTML 500 — gây 500 ở /api/ai/suggest-listing khi ảnh nặng. */
+app.use((err, req, res, next) => {
+  if (err?.name !== "MulterError") return next(err);
+  let message = err.message || "Lỗi upload file.";
+  if (err.code === "LIMIT_FILE_SIZE") {
+    message =
+      "Ảnh quá lớn (tối đa 15MB mỗi ảnh). Hãy chọn ảnh nhỏ hơn, nén hoặc giảm độ phân giải.";
+  } else if (err.code === "LIMIT_FILE_COUNT") {
+    message = "Tối đa 4 ảnh mỗi lần gọi Gemini.";
+  } else if (err.code === "LIMIT_UNEXPECTED_FIELD") {
+    message = "Trường upload không đúng định dạng (chỉ dùng notes + images).";
+  }
+  console.error("[MulterError]", err.code, req.path);
+  return res.status(413).json({ error: message });
+});
+
+app.use((err, req, res, next) => {
+  if (res.headersSent) return next(err);
+  console.error("[unhandled]", err);
+  return res.status(500).json({ error: err?.message || "Lỗi máy chủ." });
+});
+
 connectDB().catch((error) => {
   console.error("MongoDB connection failed:", error.message);
   console.error("Server vẫn chạy — sửa MONGO_URI trong backend/.env rồi restart.");
