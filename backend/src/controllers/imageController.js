@@ -1,4 +1,8 @@
 import cosineSimilarity from "cosine-similarity";
+import fs from "node:fs/promises";
+import path from "node:path";
+import crypto from "node:crypto";
+import AdmZip from "adm-zip";
 import Image from "../models/Image.js";
 import { getEmbedding } from "../services/aiService.js";
 
@@ -15,6 +19,75 @@ const ALLOWED_APARTMENT_TYPES = new Set([
   "4BR (4 Bedroom)",
 ]);
 const ALLOWED_APARTMENT_CONDITIONS = new Set(["trống", "bếp rèm", "full"]);
+const IMAGE_EXTENSIONS = new Set([".jpg", ".jpeg", ".png", ".webp", ".gif", ".tif", ".tiff"]);
+const IMAGE_MIME_PREFIX = "image/";
+const OFFICE_MEDIA_PREFIXES = ["word/media/", "ppt/media/", "xl/media/"];
+const MAX_EXTRACTED_IMAGES = 50;
+
+const toUploadPublicPath = (absolutePath) => {
+  const uploadRoot = path.resolve("uploads");
+  const relative = path.relative(uploadRoot, absolutePath).replace(/\\/g, "/");
+  return `uploads/${relative}`;
+};
+
+const makeExtractedImageName = (sourceName, entryName) => {
+  const sourceBase = path.basename(sourceName, path.extname(sourceName)).replace(/[^a-zA-Z0-9_-]+/g, "-");
+  const entryBase = path.basename(entryName, path.extname(entryName)).replace(/[^a-zA-Z0-9_-]+/g, "-");
+  const ext = path.extname(entryName).toLowerCase() || ".jpg";
+  const id = crypto.randomBytes(4).toString("hex");
+  return `${Date.now()}-${sourceBase || "file"}-${entryBase || "image"}-${id}${ext}`;
+};
+
+const canExtractArchive = (file) => {
+  const ext = path.extname(String(file?.originalname || "").toLowerCase());
+  return ext === ".zip" || ext === ".docx" || ext === ".pptx" || ext === ".xlsx";
+};
+
+const isImageUpload = (file) => {
+  if (!file) return false;
+  if (String(file.mimetype || "").toLowerCase().startsWith(IMAGE_MIME_PREFIX)) return true;
+  const ext = path.extname(String(file.originalname || "").toLowerCase());
+  return IMAGE_EXTENSIONS.has(ext);
+};
+
+const isAllowedImageEntry = (entryName) => {
+  const normalized = String(entryName || "").replace(/\\/g, "/").toLowerCase();
+  const ext = path.extname(normalized);
+  if (!IMAGE_EXTENSIONS.has(ext)) return false;
+  if (normalized.endsWith("/")) return false;
+  return true;
+};
+
+const shouldTakeEntry = (entryName, sourceExt) => {
+  const normalized = String(entryName || "").replace(/\\/g, "/").toLowerCase();
+  if (!isAllowedImageEntry(normalized)) return false;
+  if (sourceExt === ".zip") return true;
+  return OFFICE_MEDIA_PREFIXES.some((prefix) => normalized.startsWith(prefix));
+};
+
+const extractImagesFromArchive = async (file) => {
+  const sourceExt = path.extname(String(file.originalname || "").toLowerCase());
+  const zip = new AdmZip(file.path);
+  const entries = zip.getEntries();
+  const selectedEntries = entries.filter((entry) => !entry.isDirectory && shouldTakeEntry(entry.entryName, sourceExt));
+
+  if (selectedEntries.length === 0) {
+    throw new Error("Không tìm thấy ảnh nào trong file đã tải lên.");
+  }
+  if (selectedEntries.length > MAX_EXTRACTED_IMAGES) {
+    throw new Error(`File chứa quá nhiều ảnh (${selectedEntries.length}). Tối đa ${MAX_EXTRACTED_IMAGES} ảnh mỗi file.`);
+  }
+
+  const uploadRoot = path.resolve("uploads");
+  const extracted = [];
+  for (const entry of selectedEntries) {
+    const outputName = makeExtractedImageName(file.originalname, entry.entryName);
+    const outputPath = path.join(uploadRoot, outputName);
+    await fs.writeFile(outputPath, entry.getData());
+    extracted.push({ path: outputPath });
+  }
+  return extracted;
+};
 
 const getSafeSimilarity = (a = [], b = []) => {
   if (!Array.isArray(a) || !Array.isArray(b) || a.length === 0 || b.length === 0) {
@@ -95,19 +168,36 @@ export const uploadImage = async (req, res) => {
       }
     }
 
-    const image = await Image.create({
-      url: req.file.path,
-      description: normalizedDescription,
-      apartmentCode: normalizedApartmentCode,
-      saleName: normalizedSaleName,
-      apartmentType: normalizedApartmentType,
-      apartmentCondition: normalizedApartmentCondition,
-      price: normalizedPrice,
-      tags: parsedTags,
-      embedding,
-    });
+    let imageFiles = [];
+    if (isImageUpload(req.file)) {
+      imageFiles = [{ path: req.file.path }];
+    } else if (canExtractArchive(req.file)) {
+      imageFiles = await extractImagesFromArchive(req.file);
+      await fs.unlink(req.file.path).catch(() => {});
+    } else {
+      return res.status(400).json({
+        error: "Định dạng file chưa được hỗ trợ. Hãy dùng ảnh hoặc file zip/docx/pptx/xlsx có chứa ảnh.",
+      });
+    }
 
-    return res.status(201).json(image);
+    const docs = await Promise.all(
+      imageFiles.map((file) =>
+        Image.create({
+          url: toUploadPublicPath(file.path),
+          description: normalizedDescription,
+          apartmentCode: normalizedApartmentCode,
+          saleName: normalizedSaleName,
+          apartmentType: normalizedApartmentType,
+          apartmentCondition: normalizedApartmentCondition,
+          price: normalizedPrice,
+          tags: parsedTags,
+          embedding,
+        }),
+      ),
+    );
+
+    if (docs.length === 1) return res.status(201).json(docs[0]);
+    return res.status(201).json({ count: docs.length, images: docs });
   } catch (error) {
     return res.status(500).json({ error: error.message });
   }

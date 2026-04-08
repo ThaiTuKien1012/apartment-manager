@@ -156,6 +156,84 @@ function ApartmentCard({ apartment, onOpenGallery, onUploadMore }) {
 }
 
 function ManagePage({ apartments, loading, error, onRefresh, onOpenUpload, onOpenGallery, onUploadMoreFromCard }) {
+  const [keyword, setKeyword] = useState("");
+  const [typeFilter, setTypeFilter] = useState("all");
+  const [conditionFilter, setConditionFilter] = useState("all");
+  const [sortMode, setSortMode] = useState("updated_desc");
+
+  const filteredApartments = useMemo(() => {
+    const q = keyword.trim().toLowerCase();
+
+    const matchesKeyword = (apartment) => {
+      if (!q) return true;
+      const latest = apartment?.items?.[0] || {};
+      const hay = [
+        apartment?.id,
+        apartment?.name,
+        apartment?.saleName,
+        apartment?.price,
+        latest.apartmentCode,
+        latest.saleName,
+        latest.price,
+        latest.apartmentType,
+        latest.apartmentCondition,
+        latest.description,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      return hay.includes(q);
+    };
+
+    const matchesType = (apartment) => {
+      if (typeFilter === "all") return true;
+      const latest = apartment?.items?.[0] || {};
+      return String(latest.apartmentType || "").trim() === typeFilter;
+    };
+
+    const matchesCondition = (apartment) => {
+      if (conditionFilter === "all") return true;
+      const latest = apartment?.items?.[0] || {};
+      return String(latest.apartmentCondition || "").trim() === conditionFilter;
+    };
+
+    const sortKeyUpdated = (apartment) => {
+      const latest = apartment?.items?.[0] || {};
+      const t = new Date(latest.updatedAt || latest.createdAt || 0).getTime();
+      return Number.isNaN(t) ? 0 : t;
+    };
+
+    const sortKeyPosted = (apartment) => {
+      const latest = apartment?.items?.[apartment?.items?.length - 1] || {};
+      const t = new Date(latest.createdAt || latest.updatedAt || 0).getTime();
+      return Number.isNaN(t) ? 0 : t;
+    };
+
+    const sortKeyCode = (apartment) => String(apartment?.id || "").toLowerCase();
+
+    const items = apartments
+      .filter((apartment) => matchesKeyword(apartment) && matchesType(apartment) && matchesCondition(apartment))
+      .slice();
+
+    items.sort((a, b) => {
+      if (sortMode === "posted_desc") return sortKeyPosted(b) - sortKeyPosted(a);
+      if (sortMode === "photos_desc") return (b?.items?.length || 0) - (a?.items?.length || 0);
+      if (sortMode === "code_asc") return sortKeyCode(a).localeCompare(sortKeyCode(b));
+      return sortKeyUpdated(b) - sortKeyUpdated(a);
+    });
+
+    return items;
+  }, [apartments, keyword, typeFilter, conditionFilter, sortMode]);
+
+  const clearFilters = () => {
+    setKeyword("");
+    setTypeFilter("all");
+    setConditionFilter("all");
+    setSortMode("updated_desc");
+  };
+
+  const hasFilters = Boolean(keyword.trim() || typeFilter !== "all" || conditionFilter !== "all" || sortMode !== "updated_desc");
+
   return (
     <main className="mx-auto mt-20 w-full max-w-7xl px-8 pb-16 pt-2">
       <div className="mb-10 flex flex-col gap-6 sm:mb-12 lg:flex-row lg:items-end lg:justify-between lg:gap-8">
@@ -175,19 +253,83 @@ function ManagePage({ apartments, loading, error, onRefresh, onOpenUpload, onOpe
         </button>
       </div>
 
-      <div className="mb-8 flex flex-wrap items-center gap-4">
-        <div className="rounded-full bg-surface-container-lowest px-6 py-2 text-sm font-medium text-primary shadow-sm">
-          All ({apartments.length})
+      <div className="mb-8 flex flex-col gap-4">
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="rounded-full bg-surface-container-lowest px-6 py-2 text-sm font-medium text-primary shadow-sm">
+            Hiển thị {filteredApartments.length}/{apartments.length}
+          </div>
+
+          <div className="ml-auto flex shrink-0 flex-wrap items-center gap-2 text-on-surface-variant">
+            {hasFilters ? (
+              <button
+                type="button"
+                onClick={clearFilters}
+                className="flex items-center gap-1 rounded-full border border-surface-container px-4 py-2 text-sm font-semibold text-on-surface"
+              >
+                <span className="material-symbols-outlined text-base">filter_alt_off</span>
+                Xoá lọc
+              </button>
+            ) : null}
+            <button
+              type="button"
+              onClick={onRefresh}
+              className="flex items-center gap-1 rounded-full border border-surface-container px-4 py-2 text-sm font-semibold text-on-surface"
+            >
+              <span className="material-symbols-outlined text-base">refresh</span>
+              Refresh
+            </button>
+          </div>
         </div>
-        <div className="ml-auto flex shrink-0 items-center gap-2 text-on-surface-variant">
-          <button
-            type="button"
-            onClick={onRefresh}
-            className="flex items-center gap-1 rounded-full border border-surface-container px-4 py-2 text-sm font-semibold text-on-surface"
+
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-4">
+          <div className="relative">
+            <span className="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-[18px] text-on-surface-variant">
+              search
+            </span>
+            <input
+              value={keyword}
+              onChange={(e) => setKeyword(e.target.value)}
+              placeholder="Tìm mã căn / sales / giá / mô tả…"
+              className="w-full rounded-full border border-surface-container bg-surface-container-lowest py-2.5 pl-11 pr-4 text-sm text-on-surface placeholder:text-on-surface-variant focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/25"
+            />
+          </div>
+
+          <select
+            value={typeFilter}
+            onChange={(e) => setTypeFilter(e.target.value)}
+            className="w-full rounded-full border border-surface-container bg-surface-container-lowest px-4 py-2.5 text-sm text-on-surface focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/25"
           >
-            <span className="material-symbols-outlined text-base">refresh</span>
-            Refresh
-          </button>
+            <option value="all">Tất cả loại căn</option>
+            {APARTMENT_TYPES.map((t) => (
+              <option key={t} value={t}>
+                {t}
+              </option>
+            ))}
+          </select>
+
+          <select
+            value={conditionFilter}
+            onChange={(e) => setConditionFilter(e.target.value)}
+            className="w-full rounded-full border border-surface-container bg-surface-container-lowest px-4 py-2.5 text-sm text-on-surface focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/25"
+          >
+            <option value="all">Tất cả tình trạng</option>
+            {APARTMENT_CONDITIONS.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </select>
+
+          <select
+            value={sortMode}
+            onChange={(e) => setSortMode(e.target.value)}
+            className="w-full rounded-full border border-surface-container bg-surface-container-lowest px-4 py-2.5 text-sm text-on-surface focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/25"
+          >
+            <option value="updated_desc">Sắp xếp: cập nhật mới nhất</option>
+            <option value="posted_desc">Sắp xếp: đăng mới nhất</option>
+            <option value="photos_desc">Sắp xếp: nhiều ảnh nhất</option>
+            <option value="code_asc">Sắp xếp: mã căn (A→Z)</option>
+          </select>
         </div>
       </div>
 
@@ -198,9 +340,13 @@ function ManagePage({ apartments, loading, error, onRefresh, onOpenUpload, onOpe
         <div className="rounded-xl bg-surface-container-low p-8 text-sm text-on-surface-variant">
           Chưa có dữ liệu. Hãy upload ảnh ở màn Uploads để tạo căn hộ.
         </div>
+      ) : !loading && filteredApartments.length === 0 ? (
+        <div className="rounded-xl bg-surface-container-low p-8 text-sm text-on-surface-variant">
+          Không có căn hộ nào khớp bộ lọc hiện tại.
+        </div>
       ) : (
         <div className="grid grid-cols-1 gap-8 md:grid-cols-2 lg:grid-cols-3">
-          {apartments.map((apartment) => (
+          {filteredApartments.map((apartment) => (
             <ApartmentCard
               key={apartment.id}
               apartment={apartment}
@@ -255,14 +401,17 @@ function UploadPage({ onUploaded }) {
     () =>
       files.map((file) => ({
         name: file.name,
-        image: URL.createObjectURL(file),
+        image: String(file?.type || "").startsWith("image/") ? URL.createObjectURL(file) : "",
+        isImage: String(file?.type || "").startsWith("image/"),
       })),
     [files],
   );
 
   useEffect(
     () => () => {
-      previewImages.forEach((item) => URL.revokeObjectURL(item.image));
+      previewImages.forEach((item) => {
+        if (item.isImage && item.image) URL.revokeObjectURL(item.image);
+      });
     },
     [previewImages],
   );
@@ -507,7 +656,14 @@ function UploadPage({ onUploaded }) {
             </div>
 
             <div className="group relative flex min-h-[20rem] flex-1 flex-col">
-              <input ref={inputRef} type="file" accept="image/*" multiple className="hidden" onChange={onSelectFiles} />
+              <input
+                ref={inputRef}
+                type="file"
+                accept="image/*,.zip,.docx,.pptx,.xlsx"
+                multiple
+                className="hidden"
+                onChange={onSelectFiles}
+              />
               <div
                 onClick={() => inputRef.current?.click()}
                 className="flex min-h-[20rem] w-full flex-1 cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-outline-variant/30 bg-surface-container-low p-10 text-center transition-colors hover:bg-surface-container"
@@ -517,7 +673,7 @@ function UploadPage({ onUploaded }) {
                 </div>
                 <h3 className="mb-2 text-xl font-bold">Drag &amp; Drop Assets</h3>
                 <p className="mx-auto max-w-xs text-on-surface-variant">
-                  Supports high-res JPEG, PNG, and TIFF formats. Minimum 2500px wide recommended.
+                  Supports JPEG/PNG/TIFF/WebP/GIF and file containers ZIP, DOCX, PPTX, XLSX.
                 </p>
                 <button
                   type="button"
@@ -540,7 +696,18 @@ function UploadPage({ onUploaded }) {
               <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
                 {previewImages.map((item) => (
                   <div key={item.name} className="group relative aspect-square overflow-hidden rounded-lg bg-surface-container">
-                    <img alt={item.name} className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-110" src={item.image} />
+                    {item.isImage ? (
+                      <img
+                        alt={item.name}
+                        className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-110"
+                        src={item.image}
+                      />
+                    ) : (
+                      <div className="flex h-full w-full flex-col items-center justify-center gap-2 p-3 text-center">
+                        <span className="material-symbols-outlined text-4xl text-on-surface-variant">folder_zip</span>
+                        <p className="line-clamp-2 text-xs font-medium text-on-surface-variant">{item.name}</p>
+                      </div>
+                    )}
                     <div className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 transition-opacity group-hover:opacity-100">
                       <button
                         onClick={() => removeFile(item.name)}
