@@ -14,6 +14,217 @@ const APARTMENT_TYPES = [
   "4BR (4 Bedroom)",
 ];
 const APARTMENT_CONDITIONS = ["trống", "bếp rèm", "full"];
+const RENTAL_STATUSES = ["chưa cho thuê", "đã cho thuê"];
+
+function SampleLibraryPage({
+  items,
+  folders,
+  selectedFolder,
+  onSelectFolder,
+  loading,
+  error,
+  onRefresh,
+  onCreateFolder,
+  onUploadFiles,
+  onDeleteSample,
+  onMoveSample,
+  actionLoadingId,
+}) {
+  const inputRef = useRef(null);
+
+  // Filter items by folder
+  const currentFolderItems = useMemo(() => {
+    if (selectedFolder === "all") return items;
+    return items.filter((img) => (img.sampleFolder || "General") === selectedFolder);
+  }, [items, selectedFolder]);
+
+  // Handle Drag & Drop
+  const [isDragging, setIsDragging] = useState(false);
+  
+  const handleDragOver = (e) => {
+    e.preventDefault();
+    setIsDragging(true);
+  };
+  
+  const handleDragLeave = (e) => {
+    e.preventDefault();
+    setIsDragging(false);
+  };
+  
+  const handleDrop = (e) => {
+    e.preventDefault();
+    setIsDragging(false);
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      onUploadFiles?.(Array.from(e.dataTransfer.files));
+    }
+  };
+
+  return (
+    <main className="mx-auto mt-20 w-full max-w-7xl px-8 pb-16 pt-2">
+      <div className="mb-10 flex flex-col gap-6 sm:mb-12 lg:flex-row lg:items-end lg:justify-between lg:gap-8">
+        <div className="min-w-0 flex-1">
+          {selectedFolder === "all" ? (
+            <>
+              <h1 className="mb-2 text-4xl font-extrabold tracking-tight text-on-surface">Sample Photo Library</h1>
+              <p className="max-w-2xl text-on-surface-variant">Lưu ảnh mẫu để tham khảo.</p>
+            </>
+          ) : (
+            <div className="flex items-center gap-4">
+              <button
+                onClick={() => onSelectFolder("all")}
+                className="flex h-12 w-12 items-center justify-center rounded-full bg-surface-container-low text-on-surface transition-transform hover:-translate-x-1"
+              >
+                <span className="material-symbols-outlined">arrow_back</span>
+              </button>
+              <div>
+                <h1 className="mb-2 text-4xl font-extrabold tracking-tight text-on-surface">{selectedFolder}</h1>
+                <p className="max-w-2xl text-on-surface-variant">
+                  {currentFolderItems.length} ảnh mẫu trong thư mục này.
+                </p>
+              </div>
+            </div>
+          )}
+        </div>
+        <div className="flex items-center gap-3">
+          <input
+            ref={inputRef}
+            type="file"
+            accept="image/*,.zip,.docx,.pptx,.xlsx"
+            multiple
+            className="hidden"
+            onChange={(e) => onUploadFiles?.(Array.from(e.target.files || []))}
+          />
+          {selectedFolder === "all" ? (
+            <button
+              type="button"
+              onClick={onCreateFolder}
+              className="flex shrink-0 items-center justify-center gap-2 self-start rounded-full border border-surface-container bg-white px-6 py-4 font-semibold text-on-surface shadow-sm transition-all duration-300 hover:-translate-y-[2px] lg:self-auto"
+            >
+              <span className="material-symbols-outlined">create_new_folder</span>
+              Tạo thư mục
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => inputRef.current?.click()}
+              disabled={actionLoadingId === "__samples__"}
+              className="flex shrink-0 items-center justify-center gap-2 self-start rounded-full bg-primary px-8 py-4 font-semibold text-on-primary shadow-xl shadow-primary/10 transition-all duration-300 hover:-translate-y-[2px] disabled:opacity-60 lg:self-auto"
+            >
+              <span className="material-symbols-outlined">upload_file</span>
+              Thêm ảnh
+            </button>
+          )}
+        </div>
+      </div>
+
+      {loading ? <p className="text-sm text-on-surface-variant">Loading samples...</p> : null}
+      {error ? <p className="text-sm text-error">{error}</p> : null}
+
+      {selectedFolder === "all" ? (
+        // --- FOLDER VIEW ---
+        <div className="grid grid-cols-2 gap-6 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+          {(folders || []).map((f) => {
+            const count = items.filter((img) => (img.sampleFolder || "General") === f).length;
+            return (
+              <button
+                key={f}
+                onClick={() => onSelectFolder(f)}
+                className="group flex flex-col items-center justify-center gap-3 rounded-2xl bg-surface-container-lowest p-8 text-center shadow-sm transition-all duration-300 hover:-translate-y-1 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-primary"
+              >
+                <div className="flex h-20 w-20 items-center justify-center rounded-full bg-[#E3F2FD] text-[#1E88E5] transition-transform duration-300 group-hover:scale-110">
+                  <span className="material-symbols-outlined text-4xl" style={{ fontVariationSettings: "'FILL' 1" }}>
+                    folder
+                  </span>
+                </div>
+                <div>
+                  <h3 className="font-bold text-on-surface line-clamp-1 w-full px-2" title={f}>
+                    {f}
+                  </h3>
+                  <p className="text-xs text-on-surface-variant mt-1">{count} mục</p>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      ) : (
+        // --- IMAGE GRID VIEW (INSIDE A FOLDER) ---
+        <div
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+          className={`min-h-[400px] rounded-3xl border-2 border-dashed p-4 transition-all duration-300 ${
+            isDragging ? "border-primary bg-primary/5" : "border-transparent"
+          }`}
+        >
+          {!loading && currentFolderItems.length === 0 ? (
+            <div className="flex flex-col items-center justify-center rounded-2xl bg-surface-container-lowest py-20 text-center shadow-sm">
+              <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-surface-container text-on-surface-variant">
+                <span className="material-symbols-outlined text-3xl">image</span>
+              </div>
+              <p className="font-semibold text-on-surface">Thư mục trống</p>
+              <p className="mt-2 text-sm text-on-surface-variant">
+                Kéo thả ảnh vào đây hoặc bấm "Thêm ảnh"
+              </p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 gap-8 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+              {currentFolderItems.map((img) => (
+                <div
+                  key={img._id}
+                  className="group relative flex flex-col overflow-hidden rounded-lg bg-surface-container-lowest transition-all duration-300 hover:scale-[1.02] hover:shadow-[0_12px_40px_rgba(42,52,57,0.06)]"
+                >
+                  <div className="relative aspect-[4/5] overflow-hidden bg-surface-container">
+                    <img
+                      className="h-full w-full object-cover transition-transform duration-700 group-hover:scale-110"
+                      src={toAssetUrl(img.url)}
+                      alt={img.description || img._id}
+                    />
+                    <div className="absolute inset-0 flex flex-col justify-end bg-gradient-to-t from-black/60 via-black/20 to-transparent p-4 opacity-0 transition-opacity duration-300 group-hover:opacity-100">
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => window.open(toAssetUrl(img.url), "_blank")}
+                          className="glass-panel flex-1 rounded-full py-2 text-xs font-bold text-white transition-all hover:bg-white hover:text-primary"
+                        >
+                          Mở ảnh
+                        </button>
+                        <button
+                          type="button"
+                          disabled={actionLoadingId === img._id}
+                          onClick={() => onDeleteSample?.(img._id)}
+                          className="rounded-full bg-error px-4 py-2 text-xs font-bold text-white transition-all hover:bg-red-700 disabled:opacity-60"
+                        >
+                          Xoá
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="p-4">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-xs text-on-surface-variant">Chuyển đến...</span>
+                      <select
+                        value={img.sampleFolder || "General"}
+                        disabled={actionLoadingId === img._id}
+                        onChange={(e) => onMoveSample?.(img._id, e.target.value)}
+                        className="w-28 rounded-full border border-surface-container bg-surface-container-lowest px-3 py-1 text-xs text-on-surface outline-none focus:border-primary"
+                      >
+                        {(folders || []).map((f) => (
+                          <option key={f} value={f}>
+                            {f}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </main>
+  );
+}
 
 const toAssetUrl = (url) => {
   if (!url) return "";
@@ -83,13 +294,18 @@ const mapToApartments = (images) => {
       featured: false,
       price: latest.price || "",
       saleName: latest.saleName || "",
+      rentalStatus: latest.rentalStatus || "chưa cho thuê",
+      apartmentType: latest.apartmentType || "",
+      apartmentCondition: latest.apartmentCondition || "",
+      description: latest.description || "",
       items: sortedItems,
     };
   });
 };
 
-function ApartmentCard({ apartment, onOpenGallery, onUploadMore }) {
+function ApartmentCard({ apartment, onOpenGallery, onUploadMore, onEdit, onDelete, onChangeStatus, actionLoadingCode }) {
   const openDetail = () => onOpenGallery?.(apartment);
+  const isBusy = actionLoadingCode === apartment.id;
 
   const onCardKeyDown = (e) => {
     if (e.key === "Enter" || e.key === " ") {
@@ -131,34 +347,88 @@ function ApartmentCard({ apartment, onOpenGallery, onUploadMore }) {
           </div>
           <button
             type="button"
-            onClick={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              onEdit?.(apartment);
+            }}
+            disabled={isBusy}
             className="rounded-full p-2 text-on-surface-variant transition-colors hover:bg-slate-100"
           >
             <span className="material-symbols-outlined">edit</span>
           </button>
         </div>
+        <div className="mb-4 flex items-center justify-between gap-2">
+          <span
+            className={`rounded-full px-3 py-1 text-[11px] font-semibold ${
+              apartment.rentalStatus === "đã cho thuê"
+                ? "bg-amber-100 text-amber-700"
+                : "bg-emerald-100 text-emerald-700"
+            }`}
+          >
+            {apartment.rentalStatus === "đã cho thuê" ? "Đã cho thuê" : "Chưa cho thuê"}
+          </span>
+          <select
+            value={apartment.rentalStatus}
+            disabled={isBusy}
+            onClick={(e) => e.stopPropagation()}
+            onChange={(e) => onChangeStatus?.(apartment, e.target.value)}
+            className="rounded-full border border-surface-container px-3 py-1 text-xs text-on-surface"
+          >
+            {RENTAL_STATUSES.map((status) => (
+              <option key={status} value={status}>
+                {status}
+              </option>
+            ))}
+          </select>
+        </div>
         <div className="flex flex-wrap items-center justify-between gap-3 border-t border-surface-container pt-4">
           <span className="text-xs font-medium text-on-surface-variant">{apartment.updated}</span>
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onUploadMore?.(apartment);
-            }}
-            className="rounded-full px-4 py-2 text-xs font-bold text-primary transition-colors hover:bg-primary-container"
-          >
-            UPLOAD MORE
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onUploadMore?.(apartment);
+              }}
+              className="rounded-full px-3 py-2 text-xs font-bold text-primary transition-colors hover:bg-primary-container"
+            >
+              UPLOAD MORE
+            </button>
+            <button
+              type="button"
+              disabled={isBusy}
+              onClick={(e) => {
+                e.stopPropagation();
+                onDelete?.(apartment);
+              }}
+              className="rounded-full px-3 py-2 text-xs font-bold text-error transition-colors hover:bg-red-50 disabled:opacity-60"
+            >
+              XOÁ
+            </button>
+          </div>
         </div>
       </div>
     </div>
   );
 }
 
-function ManagePage({ apartments, loading, error, onRefresh, onOpenUpload, onOpenGallery, onUploadMoreFromCard }) {
+function ManagePage({
+  apartments,
+  loading,
+  error,
+  onRefresh,
+  onOpenUpload,
+  onOpenGallery,
+  onUploadMoreFromCard,
+  onEditApartment,
+  onDeleteApartment,
+  onChangeApartmentStatus,
+  actionLoadingCode,
+}) {
   const [keyword, setKeyword] = useState("");
   const [typeFilter, setTypeFilter] = useState("all");
   const [conditionFilter, setConditionFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("all");
   const [sortMode, setSortMode] = useState("updated_desc");
 
   const filteredApartments = useMemo(() => {
@@ -196,6 +466,11 @@ function ManagePage({ apartments, loading, error, onRefresh, onOpenUpload, onOpe
       const latest = apartment?.items?.[0] || {};
       return String(latest.apartmentCondition || "").trim() === conditionFilter;
     };
+    const matchesStatus = (apartment) => {
+      if (statusFilter === "all") return true;
+      const latest = apartment?.items?.[0] || {};
+      return String(latest.rentalStatus || "chưa cho thuê").trim() === statusFilter;
+    };
 
     const sortKeyUpdated = (apartment) => {
       const latest = apartment?.items?.[0] || {};
@@ -212,7 +487,7 @@ function ManagePage({ apartments, loading, error, onRefresh, onOpenUpload, onOpe
     const sortKeyCode = (apartment) => String(apartment?.id || "").toLowerCase();
 
     const items = apartments
-      .filter((apartment) => matchesKeyword(apartment) && matchesType(apartment) && matchesCondition(apartment))
+      .filter((apartment) => matchesKeyword(apartment) && matchesType(apartment) && matchesCondition(apartment) && matchesStatus(apartment))
       .slice();
 
     items.sort((a, b) => {
@@ -223,25 +498,26 @@ function ManagePage({ apartments, loading, error, onRefresh, onOpenUpload, onOpe
     });
 
     return items;
-  }, [apartments, keyword, typeFilter, conditionFilter, sortMode]);
+  }, [apartments, keyword, typeFilter, conditionFilter, statusFilter, sortMode]);
 
   const clearFilters = () => {
     setKeyword("");
     setTypeFilter("all");
     setConditionFilter("all");
+    setStatusFilter("all");
     setSortMode("updated_desc");
   };
 
-  const hasFilters = Boolean(keyword.trim() || typeFilter !== "all" || conditionFilter !== "all" || sortMode !== "updated_desc");
+  const hasFilters = Boolean(
+    keyword.trim() || typeFilter !== "all" || conditionFilter !== "all" || statusFilter !== "all" || sortMode !== "updated_desc",
+  );
 
   return (
     <main className="mx-auto mt-20 w-full max-w-7xl px-8 pb-16 pt-2">
       <div className="mb-10 flex flex-col gap-6 sm:mb-12 lg:flex-row lg:items-end lg:justify-between lg:gap-8">
         <div className="min-w-0 flex-1">
           <h1 className="mb-2 text-4xl font-extrabold tracking-tight text-on-surface">Managed Apartments</h1>
-          <p className="max-w-xl leading-relaxed text-on-surface-variant">
-            Organize and curate your premium architectural portfolio. Manage metadata and galleries for all active listings.
-          </p>
+          <p className="max-w-xl text-on-surface-variant">Danh sách căn hộ đã lưu.</p>
         </div>
         <button
           type="button"
@@ -281,7 +557,7 @@ function ManagePage({ apartments, loading, error, onRefresh, onOpenUpload, onOpe
           </div>
         </div>
 
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-4">
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-5">
           <div className="relative">
             <span className="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-[18px] text-on-surface-variant">
               search
@@ -330,6 +606,18 @@ function ManagePage({ apartments, loading, error, onRefresh, onOpenUpload, onOpe
             <option value="photos_desc">Sắp xếp: nhiều ảnh nhất</option>
             <option value="code_asc">Sắp xếp: mã căn (A→Z)</option>
           </select>
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            className="w-full rounded-full border border-surface-container bg-surface-container-lowest px-4 py-2.5 text-sm text-on-surface focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/25"
+          >
+            <option value="all">Tất cả trạng thái thuê</option>
+            {RENTAL_STATUSES.map((status) => (
+              <option key={status} value={status}>
+                {status}
+              </option>
+            ))}
+          </select>
         </div>
       </div>
 
@@ -352,6 +640,10 @@ function ManagePage({ apartments, loading, error, onRefresh, onOpenUpload, onOpe
               apartment={apartment}
               onOpenGallery={onOpenGallery}
               onUploadMore={onUploadMoreFromCard}
+              onEdit={onEditApartment}
+              onDelete={onDeleteApartment}
+              onChangeStatus={onChangeApartmentStatus}
+              actionLoadingCode={actionLoadingCode}
             />
           ))}
         </div>
@@ -392,6 +684,7 @@ function UploadPage({ onUploaded }) {
   const [price, setPrice] = useState("");
   const [apartmentType, setApartmentType] = useState(APARTMENT_TYPES[0]);
   const [apartmentCondition, setApartmentCondition] = useState(APARTMENT_CONDITIONS[0]);
+  const [rentalStatus, setRentalStatus] = useState(RENTAL_STATUSES[0]);
   const [files, setFiles] = useState([]);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState("");
@@ -500,6 +793,7 @@ function UploadPage({ onUploaded }) {
           formData.append("price", price.trim());
           formData.append("apartmentType", apartmentType.trim());
           formData.append("apartmentCondition", apartmentCondition.trim());
+          formData.append("rentalStatus", rentalStatus.trim());
           formData.append(
             "description",
             listingDescription.trim() || `${apartmentCode.trim()} - ${apartmentType.trim()}`,
@@ -622,6 +916,23 @@ function UploadPage({ onUploaded }) {
                   >
                     {APARTMENT_CONDITIONS.map((condition) => (
                       <option key={condition}>{condition}</option>
+                    ))}
+                  </select>
+                  <span className="material-symbols-outlined pointer-events-none absolute right-5 top-1/2 -translate-y-1/2 text-outline">
+                    expand_more
+                  </span>
+                </div>
+              </div>
+              <div className="space-y-2">
+                <label className="ml-1 text-xs font-semibold uppercase tracking-widest text-on-surface-variant">Trạng thái thuê</label>
+                <div className="relative">
+                  <select
+                    className="w-full appearance-none cursor-pointer rounded-full border-none bg-surface-container-high px-6 py-4 text-on-surface transition-all focus:bg-surface-container-lowest focus:ring-2 focus:ring-primary"
+                    value={rentalStatus}
+                    onChange={(e) => setRentalStatus(e.target.value)}
+                  >
+                    {RENTAL_STATUSES.map((status) => (
+                      <option key={status}>{status}</option>
                     ))}
                   </select>
                   <span className="material-symbols-outlined pointer-events-none absolute right-5 top-1/2 -translate-y-1/2 text-outline">
@@ -758,16 +1069,164 @@ function UploadPage({ onUploaded }) {
   );
 }
 
+function Dialog({ title, children, onClose }) {
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+      <div className="bg-surface-container-lowest relative w-full max-w-md rounded-3xl p-8 shadow-2xl">
+        <button
+          onClick={onClose}
+          className="absolute right-6 top-6 text-on-surface-variant transition-colors hover:text-on-surface"
+        >
+          <span className="material-symbols-outlined">close</span>
+        </button>
+        <h2 className="mb-6 text-2xl font-bold tracking-tight text-on-surface">{title}</h2>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function CreateFolderModal({ onClose, onSubmit }) {
+  const [name, setName] = useState("");
+  return (
+    <Dialog title="Thư mục mới" onClose={onClose}>
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          onSubmit(name);
+        }}
+      >
+        <div className="mb-6">
+          <label className="mb-2 block text-sm font-semibold text-on-surface">Tên thư mục</label>
+          <input
+            autoFocus
+            type="text"
+            className="w-full rounded-xl bg-surface-container p-4 text-on-surface outline-none ring-2 ring-transparent transition-all focus:ring-primary"
+            placeholder="Nhập tên thư mục..."
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
+        </div>
+        <div className="flex justify-end gap-3">
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-xl px-5 py-3 font-semibold text-on-surface-variant hover:bg-surface-container"
+          >
+            Hủy
+          </button>
+          <button
+            type="submit"
+            disabled={!name.trim()}
+            className="rounded-xl bg-primary px-6 py-3 font-bold text-on-primary transition-transform hover:scale-105 disabled:scale-100 disabled:opacity-50"
+          >
+            Tạo
+          </button>
+        </div>
+      </form>
+    </Dialog>
+  );
+}
+
+function ConfirmModal({ title, message, onConfirm, onClose }) {
+  return (
+    <Dialog title={title} onClose={onClose}>
+      <p className="mb-8 text-on-surface-variant">{message}</p>
+      <div className="flex justify-end gap-3">
+        <button
+          onClick={onClose}
+          className="rounded-xl px-5 py-3 font-semibold text-on-surface-variant hover:bg-surface-container"
+        >
+          Hủy
+        </button>
+        <button
+          onClick={onConfirm}
+          className="rounded-xl bg-error px-6 py-3 font-bold text-on-error transition-transform hover:scale-105"
+        >
+          Xoá
+        </button>
+      </div>
+    </Dialog>
+  );
+}
+
+function EditApartmentModal({ apartment, onClose, onSubmit }) {
+  const current = apartment.items?.[0] || {};
+  const [saleName, setSaleName] = useState(current.saleName || apartment.saleName || "");
+  const [price, setPrice] = useState(current.price || apartment.price || "");
+  const [description, setDescription] = useState(current.description || apartment.description || "");
+
+  return (
+    <Dialog title="Chỉnh sửa thông tin" onClose={onClose}>
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          onSubmit({ saleName, price, description });
+        }}
+      >
+        <div className="mb-4">
+          <label className="mb-2 block text-sm font-semibold text-on-surface">Tên Sales</label>
+          <input
+            autoFocus
+            type="text"
+            className="w-full rounded-xl bg-surface-container p-4 text-on-surface outline-none ring-2 ring-transparent focus:ring-primary"
+            value={saleName}
+            onChange={(e) => setSaleName(e.target.value)}
+          />
+        </div>
+        <div className="mb-4">
+          <label className="mb-2 block text-sm font-semibold text-on-surface">Giá tiền</label>
+          <input
+            type="text"
+            className="w-full rounded-xl bg-surface-container p-4 text-on-surface outline-none ring-2 ring-transparent focus:ring-primary"
+            value={price}
+            onChange={(e) => setPrice(e.target.value)}
+          />
+        </div>
+        <div className="mb-6">
+          <label className="mb-2 block text-sm font-semibold text-on-surface">Mô tả</label>
+          <textarea
+            className="min-h-[100px] w-full rounded-xl bg-surface-container p-4 text-on-surface outline-none ring-2 ring-transparent focus:ring-primary"
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+          />
+        </div>
+        <div className="flex justify-end gap-3">
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-xl px-5 py-3 font-semibold text-on-surface-variant hover:bg-surface-container"
+          >
+            Hủy
+          </button>
+          <button
+            type="submit"
+            className="rounded-xl bg-primary px-6 py-3 font-bold text-on-primary transition-transform hover:scale-105"
+          >
+            Lưu
+          </button>
+        </div>
+      </form>
+    </Dialog>
+  );
+}
+
 export default function App() {
+  const [modalConfig, setModalConfig] = useState(null);
   const [activePage, setActivePage] = useState("apartments");
   const [detailApartment, setDetailApartment] = useState(null);
   const [images, setImages] = useState([]);
+  const [samples, setSamples] = useState([]);
+  const [sampleFolders, setSampleFolders] = useState(["General"]);
+  const [selectedSampleFolder, setSelectedSampleFolder] = useState("all");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [actionLoadingCode, setActionLoadingCode] = useState("");
 
   const pageTitle = useMemo(() => {
     if (detailApartment) return detailApartment.name;
     if (activePage === "uploads") return "Upload New Property";
+    if (activePage === "samples") return "Sample Photo Library";
     return "Managed Apartments";
   }, [detailApartment, activePage]);
 
@@ -802,6 +1261,196 @@ export default function App() {
   useEffect(() => {
     fetchImages();
   }, []);
+
+  const fetchSamples = async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const base = `${API_BASE_URL}/api/samples`.replace(/([^:]\/)\/+/g, "$1");
+      const url =
+        selectedSampleFolder && selectedSampleFolder !== "all"
+          ? `${base}?folder=${encodeURIComponent(selectedSampleFolder)}`
+          : base;
+      const response = await fetch(url);
+      if (!response.ok) {
+        const body = await response.text();
+        throw new Error(`Không tải được ảnh mẫu (${response.status}). ${body ? body.slice(0, 200) : ""}`);
+      }
+      const data = await response.json();
+      setSamples(Array.isArray(data) ? data : []);
+    } catch (fetchError) {
+      const msg =
+        fetchError instanceof TypeError && fetchError.message === "Failed to fetch"
+          ? "Không kết nối được backend. Chạy backend: cd backend && npm run dev — rồi restart frontend (npm run dev)."
+          : fetchError.message;
+      setError(msg);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchSampleFolders = async () => {
+    try {
+      const url = `${API_BASE_URL}/api/samples/folders`.replace(/([^:]\/)\/+/g, "$1");
+      const response = await fetch(url);
+      if (!response.ok) return;
+      const data = await response.json().catch(() => []);
+      const list = Array.isArray(data) ? data : [];
+      const normalized = Array.from(new Set(["General", ...list.map((x) => String(x || "").trim()).filter(Boolean)]));
+      setSampleFolders(normalized);
+    } catch {
+      // ignore
+    }
+  };
+
+  useEffect(() => {
+    if (activePage === "samples") {
+      fetchSampleFolders();
+      fetchSamples();
+    }
+  }, [activePage]);
+
+  useEffect(() => {
+    if (activePage === "samples") fetchSamples();
+  }, [selectedSampleFolder]);
+
+  const uploadSampleFiles = async (files) => {
+    if (!files || files.length === 0) return;
+    setActionLoadingCode("__samples__");
+    setError("");
+    try {
+      await Promise.all(
+        files.map(async (file) => {
+          const formData = new FormData();
+          formData.append("image", file, file.name);
+          formData.append("sampleFolder", selectedSampleFolder === "all" ? "General" : selectedSampleFolder);
+          const response = await fetch(`${API_BASE_URL}/api/samples/upload`, { method: "POST", body: formData });
+          if (!response.ok) {
+            const data = await response.json().catch(() => ({}));
+            throw new Error(data.error || "Upload sample failed");
+          }
+        }),
+      );
+      await fetchSampleFolders();
+      await fetchSamples();
+    } catch (e) {
+      setError(e.message || "Không upload được ảnh mẫu.");
+    } finally {
+      setActionLoadingCode("");
+    }
+  };
+
+  const createSampleFolder = async () => {
+    setModalConfig({ type: "CREATE_FOLDER" });
+  };
+
+  const moveSampleToFolder = async (id, folder) => {
+    const sampleFolder = String(folder || "").trim() || "General";
+    setActionLoadingCode(id);
+    setError("");
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/samples/${encodeURIComponent(id)}/folder`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sampleFolder }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || "Không đổi thư mục.");
+      await fetchSampleFolders();
+      await fetchSamples();
+    } catch (e) {
+      setError(e.message || "Không đổi thư mục.");
+    } finally {
+      setActionLoadingCode("");
+    }
+  };
+
+  const deleteSample = async (sampleId) => {
+    setModalConfig({
+      type: "CONFIRM",
+      title: "Xoá ảnh mẫu",
+      message: "Xoá ảnh mẫu này?",
+      onConfirm: async () => {
+        setActionLoadingCode(sampleId);
+        setError("");
+        try {
+          const response = await fetch(`${API_BASE_URL}/api/samples/${encodeURIComponent(sampleId)}`, { method: "DELETE" });
+          const data = await response.json().catch(() => ({}));
+          if (!response.ok) throw new Error(data.error || "Không xoá được ảnh mẫu.");
+          await fetchSampleFolders();
+          await fetchSamples();
+        } catch (e) {
+          setError(e.message || "Không xoá được ảnh mẫu.");
+        } finally {
+          setActionLoadingCode("");
+        }
+      },
+    });
+  };
+
+  const updateApartmentApi = async (apartmentCode, payload) => {
+    const response = await fetch(`${API_BASE_URL}/api/apartments/${encodeURIComponent(apartmentCode)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || "Không cập nhật được căn hộ.");
+  };
+
+  const updateApartmentStatusApi = async (apartmentCode, rentalStatus) => {
+    const response = await fetch(`${API_BASE_URL}/api/apartments/${encodeURIComponent(apartmentCode)}/status`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ rentalStatus }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || "Không cập nhật được trạng thái thuê.");
+  };
+
+  const deleteApartmentApi = async (apartmentCode) => {
+    const response = await fetch(`${API_BASE_URL}/api/apartments/${encodeURIComponent(apartmentCode)}`, {
+      method: "DELETE",
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || "Không xoá được căn hộ.");
+  };
+
+  const handleEditApartment = async (apartment) => {
+    setModalConfig({ type: "EDIT_APARTMENT", apartment });
+  };
+
+  const handleDeleteApartment = async (apartment) => {
+    setModalConfig({
+      type: "CONFIRM",
+      title: "Xoá căn hộ",
+      message: `Xoá căn ${apartment.id}? Hành động này không thể hoàn tác.`,
+      onConfirm: async () => {
+        setActionLoadingCode(apartment.id);
+        try {
+          await deleteApartmentApi(apartment.id);
+          if (detailApartment?.id === apartment.id) setDetailApartment(null);
+          await fetchImages();
+        } catch (e) {
+          setError(e.message || "Không xoá được căn hộ.");
+        } finally {
+          setActionLoadingCode("");
+        }
+      },
+    });
+  };
+
+  const handleChangeApartmentStatus = async (apartment, rentalStatus) => {
+    setActionLoadingCode(apartment.id);
+    try {
+      await updateApartmentStatusApi(apartment.id, rentalStatus);
+      await fetchImages();
+    } catch (e) {
+      setError(e.message || "Không cập nhật được trạng thái thuê.");
+    } finally {
+      setActionLoadingCode("");
+    }
+  };
 
   const openedApartmentFromQuery = useRef(false);
   useEffect(() => {
@@ -857,6 +1506,20 @@ export default function App() {
           >
             <span className="material-symbols-outlined mr-3">cloud_upload</span>
             Uploads
+          </button>
+          <button
+            onClick={() => {
+              setDetailApartment(null);
+              setActivePage("samples");
+            }}
+            className={`flex w-full items-center px-8 py-3 text-sm transition-transform duration-200 ${
+              activePage === "samples"
+                ? "translate-x-1 rounded-r-full bg-white font-semibold text-cyan-700 shadow-sm"
+                : "font-medium text-slate-500 hover:translate-x-1 hover:text-cyan-600"
+            }`}
+          >
+            <span className="material-symbols-outlined mr-3">photo_library</span>
+            Sample Library
           </button>
         </nav>
 
@@ -920,6 +1583,21 @@ export default function App() {
           />
         ) : activePage === "uploads" ? (
           <UploadPage onUploaded={fetchImages} />
+        ) : activePage === "samples" ? (
+          <SampleLibraryPage
+            items={samples}
+            folders={sampleFolders}
+            selectedFolder={selectedSampleFolder}
+            onSelectFolder={setSelectedSampleFolder}
+            loading={loading}
+            error={error}
+            onRefresh={fetchSamples}
+            onCreateFolder={createSampleFolder}
+            onUploadFiles={uploadSampleFiles}
+            onDeleteSample={deleteSample}
+            onMoveSample={moveSampleToFolder}
+            actionLoadingId={actionLoadingCode}
+          />
         ) : (
           <ManagePage
             apartments={apartments}
@@ -935,9 +1613,75 @@ export default function App() {
               setDetailApartment(null);
               setActivePage("uploads");
             }}
+            onEditApartment={handleEditApartment}
+            onDeleteApartment={handleDeleteApartment}
+            onChangeApartmentStatus={handleChangeApartmentStatus}
+            actionLoadingCode={actionLoadingCode}
           />
         )}
       </div>
+
+      {/* Render Modals */}
+      {modalConfig?.type === "CREATE_FOLDER" && (
+        <CreateFolderModal
+          onClose={() => setModalConfig(null)}
+          onSubmit={async (name) => {
+            const trimmed = String(name).trim();
+            if (!trimmed) return;
+            setModalConfig(null);
+            setActionLoadingCode("__samples__");
+            setError("");
+            try {
+              const response = await fetch(`${API_BASE_URL}/api/samples/folders`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ name: trimmed }),
+              });
+              const data = await response.json().catch(() => ({}));
+              if (!response.ok) throw new Error(data.error || "Không tạo được thư mục.");
+              
+              // Cập nhật state trực tiếp thay vì fetch lại (vì BE chưa lưu DB nếu chưa có ảnh)
+              setSampleFolders((prev) => Array.from(new Set([...prev, trimmed])));
+              setSelectedSampleFolder(trimmed);
+            } catch (e) {
+              setError(e.message || "Không tạo được thư mục.");
+            } finally {
+              setActionLoadingCode("");
+            }
+          }}
+        />
+      )}
+
+      {modalConfig?.type === "CONFIRM" && (
+        <ConfirmModal
+          title={modalConfig.title}
+          message={modalConfig.message}
+          onClose={() => setModalConfig(null)}
+          onConfirm={() => {
+            setModalConfig(null);
+            modalConfig.onConfirm();
+          }}
+        />
+      )}
+
+      {modalConfig?.type === "EDIT_APARTMENT" && (
+        <EditApartmentModal
+          apartment={modalConfig.apartment}
+          onClose={() => setModalConfig(null)}
+          onSubmit={async (payload) => {
+            setModalConfig(null);
+            setActionLoadingCode(modalConfig.apartment.id);
+            try {
+              await updateApartmentApi(modalConfig.apartment.id, payload);
+              await fetchImages();
+            } catch (e) {
+              setError(e.message || "Không cập nhật được căn hộ.");
+            } finally {
+              setActionLoadingCode("");
+            }
+          }}
+        />
+      )}
     </div>
   );
 }

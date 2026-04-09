@@ -5,6 +5,7 @@ import crypto from "node:crypto";
 import AdmZip from "adm-zip";
 import Image from "../models/Image.js";
 import { getEmbedding } from "../services/aiService.js";
+import { deleteSupabaseByPublicUrl, isSupabaseStorageEnabled, uploadBufferToSupabase } from "../services/storageService.js";
 
 const parseTags = (rawTags = "") =>
   rawTags
@@ -19,6 +20,7 @@ const ALLOWED_APARTMENT_TYPES = new Set([
   "4BR (4 Bedroom)",
 ]);
 const ALLOWED_APARTMENT_CONDITIONS = new Set(["trống", "bếp rèm", "full"]);
+const ALLOWED_RENTAL_STATUS = new Set(["chưa cho thuê", "đã cho thuê"]);
 const IMAGE_EXTENSIONS = new Set([".jpg", ".jpeg", ".png", ".webp", ".gif", ".tif", ".tiff"]);
 const IMAGE_MIME_PREFIX = "image/";
 const OFFICE_MEDIA_PREFIXES = ["word/media/", "ppt/media/", "xl/media/"];
@@ -84,9 +86,42 @@ const extractImagesFromArchive = async (file) => {
     const outputName = makeExtractedImageName(file.originalname, entry.entryName);
     const outputPath = path.join(uploadRoot, outputName);
     await fs.writeFile(outputPath, entry.getData());
-    extracted.push({ path: outputPath });
+    extracted.push({ path: outputPath, fileName: outputName });
   }
   return extracted;
+};
+
+const resolveImageFiles = async (file) => {
+  if (isImageUpload(file)) {
+    return [{ path: file.path, fileName: file.originalname || path.basename(file.path) }];
+  }
+  if (canExtractArchive(file)) {
+    const extracted = await extractImagesFromArchive(file);
+    await fs.unlink(file.path).catch(() => {});
+    return extracted;
+  }
+  throw new Error("Định dạng file chưa được hỗ trợ. Hãy dùng ảnh hoặc file zip/docx/pptx/xlsx có chứa ảnh.");
+};
+
+const persistImageFiles = async ({ imageFiles, apartmentCode, folder, createDoc }) => {
+  const useSupabase = isSupabaseStorageEnabled();
+  return Promise.all(
+    imageFiles.map(async (file) => {
+      let url = toUploadPublicPath(file.path);
+      if (useSupabase) {
+        const buffer = await fs.readFile(file.path);
+        const uploaded = await uploadBufferToSupabase({
+          buffer,
+          fileName: file.fileName || path.basename(file.path),
+          apartmentCode,
+          folder,
+        });
+        url = uploaded.publicUrl;
+        await fs.unlink(file.path).catch(() => {});
+      }
+      return createDoc(url);
+    }),
+  );
 };
 
 const getSafeSimilarity = (a = [], b = []) => {
@@ -114,12 +149,14 @@ export const uploadImage = async (req, res) => {
       saleName = "",
       apartmentType = "",
       apartmentCondition = "",
+      rentalStatus = "chưa cho thuê",
       price = "",
     } = req.body;
     const normalizedApartmentCode = String(apartmentCode ?? "").trim();
     const normalizedSaleName = String(saleName ?? "").trim();
     const normalizedApartmentType = String(apartmentType ?? "").trim();
     const normalizedApartmentCondition = String(apartmentCondition ?? "").trim().toLowerCase();
+    const normalizedRentalStatus = String(rentalStatus ?? "chưa cho thuê").trim().toLowerCase();
     const normalizedDescription = String(description ?? "").trim();
     const normalizedPrice = String(price ?? "").trim();
 
@@ -142,6 +179,11 @@ export const uploadImage = async (req, res) => {
     if (!ALLOWED_APARTMENT_CONDITIONS.has(normalizedApartmentCondition)) {
       return res.status(400).json({
         error: "apartmentCondition must be one of: trống, bếp rèm, full",
+      });
+    }
+    if (!ALLOWED_RENTAL_STATUS.has(normalizedRentalStatus)) {
+      return res.status(400).json({
+        error: "rentalStatus must be one of: chưa cho thuê, đã cho thuê",
       });
     }
 
@@ -168,33 +210,26 @@ export const uploadImage = async (req, res) => {
       }
     }
 
-    let imageFiles = [];
-    if (isImageUpload(req.file)) {
-      imageFiles = [{ path: req.file.path }];
-    } else if (canExtractArchive(req.file)) {
-      imageFiles = await extractImagesFromArchive(req.file);
-      await fs.unlink(req.file.path).catch(() => {});
-    } else {
-      return res.status(400).json({
-        error: "Định dạng file chưa được hỗ trợ. Hãy dùng ảnh hoặc file zip/docx/pptx/xlsx có chứa ảnh.",
-      });
-    }
-
-    const docs = await Promise.all(
-      imageFiles.map((file) =>
+    const imageFiles = await resolveImageFiles(req.file);
+    const docs = await persistImageFiles({
+      imageFiles,
+      apartmentCode: normalizedApartmentCode,
+      folder: "",
+      createDoc: (url) =>
         Image.create({
-          url: toUploadPublicPath(file.path),
+          url,
           description: normalizedDescription,
           apartmentCode: normalizedApartmentCode,
           saleName: normalizedSaleName,
           apartmentType: normalizedApartmentType,
           apartmentCondition: normalizedApartmentCondition,
+          rentalStatus: normalizedRentalStatus,
           price: normalizedPrice,
           tags: parsedTags,
           embedding,
+          isSample: false,
         }),
-      ),
-    );
+    });
 
     if (docs.length === 1) return res.status(201).json(docs[0]);
     return res.status(201).json({ count: docs.length, images: docs });
@@ -203,10 +238,227 @@ export const uploadImage = async (req, res) => {
   }
 };
 
+export const uploadSampleImage = async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: "Image file is required" });
+
+    const description = String(req.body?.description || "").trim();
+    const tags = parseTags(String(req.body?.tags || ""));
+    const sampleFolder = String(req.body?.sampleFolder || "General").trim() || "General";
+    const imageFiles = await resolveImageFiles(req.file);
+    const docs = await persistImageFiles({
+      imageFiles,
+      apartmentCode: "sample",
+      folder: sampleFolder,
+      createDoc: (url) =>
+        Image.create({
+          url,
+          description,
+          apartmentCode: "__sample__",
+          saleName: "sample",
+          apartmentType: "2BR (2 Bedroom)",
+          apartmentCondition: "trống",
+          rentalStatus: "chưa cho thuê",
+          price: "sample",
+          tags,
+          embedding: [],
+          isSample: true,
+          sampleFolder,
+        }),
+    });
+
+    if (docs.length === 1) return res.status(201).json(docs[0]);
+    return res.status(201).json({ count: docs.length, images: docs });
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
+};
+
+export const getSampleFolders = async (_req, res) => {
+  try {
+    const folders = await Image.distinct("sampleFolder", { isSample: true });
+    const normalized = folders.map((f) => (String(f || "").trim() ? String(f).trim() : "General"));
+    const unique = Array.from(new Set(["General", ...normalized])).filter(Boolean);
+    unique.sort((a, b) => a.localeCompare(b, "vi"));
+    return res.json(unique);
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
+};
+
+export const createSampleFolder = async (req, res) => {
+  try {
+    const name = String(req.body?.name || "").trim();
+    if (!name) return res.status(400).json({ error: "name is required" });
+    if (name.length > 40) return res.status(400).json({ error: "Folder name quá dài (tối đa 40 ký tự)." });
+    // Không cần create thật trong DB; chỉ return OK để FE refresh list.
+    return res.status(201).json({ name });
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
+};
+
+export const updateSampleFolder = async (req, res) => {
+  try {
+    const id = String(req.params.id || "").trim();
+    if (!id) return res.status(400).json({ error: "id is required" });
+    const sampleFolder = String(req.body?.sampleFolder || "").trim();
+    if (!sampleFolder) return res.status(400).json({ error: "sampleFolder is required" });
+    const doc = await Image.findOneAndUpdate({ _id: id, isSample: true }, { $set: { sampleFolder } }, { new: true });
+    if (!doc) return res.status(404).json({ error: "Sample image not found." });
+    return res.json(doc);
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
+};
+
+export const updateApartment = async (req, res) => {
+  try {
+    const apartmentCode = String(req.params.apartmentCode || "").trim();
+    if (!apartmentCode) return res.status(400).json({ error: "apartmentCode is required" });
+
+    const updates = {};
+    if (req.body.saleName !== undefined) {
+      const saleName = String(req.body.saleName || "").trim();
+      if (!saleName) return res.status(400).json({ error: "saleName is required" });
+      updates.saleName = saleName;
+    }
+    if (req.body.price !== undefined) {
+      const price = String(req.body.price || "").trim();
+      if (!price) return res.status(400).json({ error: "price is required" });
+      updates.price = price;
+    }
+    if (req.body.description !== undefined) {
+      updates.description = String(req.body.description || "").trim();
+    }
+    if (req.body.apartmentType !== undefined) {
+      const apartmentType = String(req.body.apartmentType || "").trim();
+      if (!ALLOWED_APARTMENT_TYPES.has(apartmentType)) {
+        return res.status(400).json({
+          error:
+            "apartmentType must be one of: 1BR (1 Bedroom), 2BR (2 Bedroom), 3BR (3 Bedroom), 4BR (4 Bedroom)",
+        });
+      }
+      updates.apartmentType = apartmentType;
+    }
+    if (req.body.apartmentCondition !== undefined) {
+      const apartmentCondition = String(req.body.apartmentCondition || "").trim().toLowerCase();
+      if (!ALLOWED_APARTMENT_CONDITIONS.has(apartmentCondition)) {
+        return res.status(400).json({
+          error: "apartmentCondition must be one of: trống, bếp rèm, full",
+        });
+      }
+      updates.apartmentCondition = apartmentCondition;
+    }
+    if (req.body.rentalStatus !== undefined) {
+      const rentalStatus = String(req.body.rentalStatus || "").trim().toLowerCase();
+      if (!ALLOWED_RENTAL_STATUS.has(rentalStatus)) {
+        return res.status(400).json({
+          error: "rentalStatus must be one of: chưa cho thuê, đã cho thuê",
+        });
+      }
+      updates.rentalStatus = rentalStatus;
+    }
+
+    if (Object.keys(updates).length === 0) {
+      return res.status(400).json({ error: "No valid fields to update." });
+    }
+
+    const result = await Image.updateMany({ apartmentCode }, { $set: updates });
+    if (result.matchedCount === 0) {
+      return res.status(404).json({ error: "Apartment not found." });
+    }
+    return res.json({ message: "Apartment updated.", matchedCount: result.matchedCount, modifiedCount: result.modifiedCount });
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
+};
+
+export const updateApartmentStatus = async (req, res) => {
+  try {
+    const apartmentCode = String(req.params.apartmentCode || "").trim();
+    if (!apartmentCode) return res.status(400).json({ error: "apartmentCode is required" });
+    const rentalStatus = String(req.body.rentalStatus || "").trim().toLowerCase();
+    if (!ALLOWED_RENTAL_STATUS.has(rentalStatus)) {
+      return res.status(400).json({
+        error: "rentalStatus must be one of: chưa cho thuê, đã cho thuê",
+      });
+    }
+    const result = await Image.updateMany({ apartmentCode }, { $set: { rentalStatus } });
+    if (result.matchedCount === 0) {
+      return res.status(404).json({ error: "Apartment not found." });
+    }
+    return res.json({ message: "Rental status updated.", matchedCount: result.matchedCount, modifiedCount: result.modifiedCount });
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
+};
+
+export const deleteApartment = async (req, res) => {
+  try {
+    const apartmentCode = String(req.params.apartmentCode || "").trim();
+    if (!apartmentCode) return res.status(400).json({ error: "apartmentCode is required" });
+
+    const docs = await Image.find({ apartmentCode }).select("url");
+    if (docs.length === 0) return res.status(404).json({ error: "Apartment not found." });
+
+    await Image.deleteMany({ apartmentCode });
+    await Promise.all(
+      docs.map(async (doc) => {
+        const url = String(doc.url || "");
+        if (url.startsWith("http")) {
+          await deleteSupabaseByPublicUrl(url).catch(() => {});
+          return;
+        }
+        const filePath = path.resolve(url);
+        if (!filePath.includes(`${path.sep}uploads${path.sep}`)) return;
+        await fs.unlink(filePath).catch(() => {});
+      }),
+    );
+    return res.json({ message: "Apartment deleted.", deletedCount: docs.length });
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
+};
+
 export const getAllImages = async (_req, res) => {
   try {
-    const images = await Image.find().sort({ createdAt: -1 });
+    const images = await Image.find({ isSample: { $ne: true } }).sort({ createdAt: -1 });
     return res.json(images);
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
+};
+
+export const getSampleImages = async (_req, res) => {
+  try {
+    const folder = String(_req.query?.folder || "").trim();
+    const query = folder && folder !== "all" ? { isSample: true, sampleFolder: folder } : { isSample: true };
+    const images = await Image.find(query).sort({ createdAt: -1 });
+    return res.json(images);
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
+};
+
+export const deleteSampleImage = async (req, res) => {
+  try {
+    const id = String(req.params.id || "").trim();
+    if (!id) return res.status(400).json({ error: "id is required" });
+    const doc = await Image.findOne({ _id: id, isSample: true });
+    if (!doc) return res.status(404).json({ error: "Sample image not found." });
+
+    const url = String(doc.url || "");
+    if (url.startsWith("http")) {
+      await deleteSupabaseByPublicUrl(url).catch(() => {});
+    } else {
+      const filePath = path.resolve(url);
+      if (filePath.includes(`${path.sep}uploads${path.sep}`)) {
+        await fs.unlink(filePath).catch(() => {});
+      }
+    }
+    await doc.deleteOne();
+    return res.json({ message: "Sample image deleted." });
   } catch (error) {
     return res.status(500).json({ error: error.message });
   }
@@ -225,6 +477,7 @@ export const searchImages = async (req, res) => {
       .filter(Boolean);
 
     const images = await Image.find({
+      isSample: { $ne: true },
       $or: [
         { description: { $regex: query, $options: "i" } },
         { apartmentCode: { $regex: query, $options: "i" } },
@@ -260,7 +513,7 @@ export const searchByAI = async (req, res) => {
         detail: error.message,
       });
     }
-    const images = await Image.find();
+    const images = await Image.find({ isSample: { $ne: true } });
 
     const ranked = images
       .map((imageDoc) => {

@@ -1,6 +1,20 @@
 import express from "express";
 import { suggestListing } from "../controllers/aiListingController.js";
-import { getAllImages, uploadImage, searchByAI, searchImages } from "../controllers/imageController.js";
+import {
+  deleteApartment,
+  deleteSampleImage,
+  getAllImages,
+  getSampleFolders,
+  getSampleImages,
+  searchByAI,
+  searchImages,
+  createSampleFolder,
+  updateSampleFolder,
+  updateApartment,
+  updateApartmentStatus,
+  uploadSampleImage,
+  uploadImage,
+} from "../controllers/imageController.js";
 import { aiImagesUpload } from "../utils/aiUpload.js";
 import { upload } from "../utils/upload.js";
 
@@ -27,6 +41,9 @@ router.get("/health", (_req, res) => {
  *                 $ref: '#/components/schemas/Image'
  */
 router.get("/images", getAllImages);
+router.get("/samples", getSampleImages);
+router.get("/samples/folders", getSampleFolders);
+router.post("/samples/folders", express.json(), createSampleFolder);
 
 /**
  * @swagger
@@ -75,6 +92,12 @@ router.get("/images", getAllImages);
  *               $ref: '#/components/schemas/Image'
  */
 router.post("/images/upload", upload.single("image"), uploadImage);
+router.post("/samples/upload", upload.single("image"), uploadSampleImage);
+router.patch("/samples/:id/folder", express.json(), updateSampleFolder);
+router.patch("/apartments/:apartmentCode", updateApartment);
+router.patch("/apartments/:apartmentCode/status", updateApartmentStatus);
+router.delete("/apartments/:apartmentCode", deleteApartment);
+router.delete("/samples/:id", deleteSampleImage);
 
 /** Gemini: gợi ý điền form upload từ ghi chú + tối đa 4 ảnh (multipart: notes + images[]) */
 router.post("/ai/suggest-listing", aiImagesUpload.array("images", 4), suggestListing);

@@ -32,6 +32,12 @@ const imageSchema = new mongoose.Schema(
       default: "",
       trim: true,
     },
+    rentalStatus: {
+      type: String,
+      default: "chưa cho thuê",
+      enum: ["chưa cho thuê", "đã cho thuê"],
+      trim: true,
+    },
     price: {
       type: String,
       default: "",
@@ -44,6 +50,15 @@ const imageSchema = new mongoose.Schema(
     embedding: {
       type: [Number],
       default: [],
+    },
+    isSample: {
+      type: Boolean,
+      default: false,
+    },
+    sampleFolder: {
+      type: String,
+      default: "General",
+      trim: true,
     },
   },
   { timestamps: true }
