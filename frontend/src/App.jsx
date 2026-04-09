@@ -167,11 +167,11 @@ function SampleLibraryPage({
               </p>
             </div>
           ) : (
-            <div className="grid grid-cols-1 gap-8 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
               {currentFolderItems.map((img) => (
                 <div
                   key={img._id}
-                  className="group relative flex flex-col overflow-hidden rounded-lg bg-surface-container-lowest transition-all duration-300 hover:scale-[1.02] hover:shadow-[0_12px_40px_rgba(42,52,57,0.06)]"
+                  className="group relative flex flex-col overflow-hidden rounded-2xl bg-surface-container-lowest transition-all duration-300 hover:scale-[1.02] hover:shadow-[0_12px_40px_rgba(42,52,57,0.06)]"
                 >
                   <div className="relative aspect-[4/5] overflow-hidden bg-surface-container">
                     <img
@@ -197,23 +197,6 @@ function SampleLibraryPage({
                           Xoá
                         </button>
                       </div>
-                    </div>
-                  </div>
-                  <div className="p-4">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-xs text-on-surface-variant">Chuyển đến...</span>
-                      <select
-                        value={img.sampleFolder || "General"}
-                        disabled={actionLoadingId === img._id}
-                        onChange={(e) => onMoveSample?.(img._id, e.target.value)}
-                        className="w-28 rounded-full border border-surface-container bg-surface-container-lowest px-3 py-1 text-xs text-on-surface outline-none focus:border-primary"
-                      >
-                        {(folders || []).map((f) => (
-                          <option key={f} value={f}>
-                            {f}
-                          </option>
-                        ))}
-                      </select>
                     </div>
                   </div>
                 </div>
