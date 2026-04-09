@@ -1,4 +1,50 @@
 import { useMemo, useState } from "react";
+import { showToast } from "./utils/toast.js";
+
+const toAbsoluteUrl = (url) => {
+  try {
+    return new URL(url, window.location.origin).href;
+  } catch {
+    return url;
+  }
+};
+
+const copyImageToClipboard = async (url) => {
+  try {
+    const absUrl = toAbsoluteUrl(url);
+    const response = await fetch(absUrl);
+    const blob = await response.blob();
+    
+    try {
+      const item = new ClipboardItem({ [blob.type]: blob });
+      await navigator.clipboard.write([item]);
+      showToast("Đã sao chép ảnh! Bạn có thể dán (Ctrl+V/Cmd+V) vào khung chat.", "success");
+    } catch (e) {
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        canvas.width = img.naturalWidth;
+        canvas.height = img.naturalHeight;
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(img, 0, 0);
+        canvas.toBlob((pngBlob) => {
+          const item = new ClipboardItem({ "image/png": pngBlob });
+          navigator.clipboard.write([item])
+            .then(() => showToast("Đã sao chép ảnh! Bạn có thể dán (Ctrl+V/Cmd+V) vào khung chat.", "success"))
+            .catch(() => showToast("Không thể sao chép. Vui lòng chuột phải vào ảnh -> 'Sao chép hình ảnh'.", "error"));
+        }, "image/png");
+      };
+      img.onerror = () => {
+        showToast("Không thể sao chép. Vui lòng chuột phải vào ảnh -> 'Sao chép hình ảnh'.", "error");
+      };
+      img.src = absUrl;
+    }
+  } catch (error) {
+    console.error("Lỗi copy ảnh:", error);
+    showToast("Không thể sao chép. Vui lòng chuột phải vào ảnh -> 'Sao chép hình ảnh'.", "error");
+  }
+};
 
 const formatListDate = (value) => {
   const d = new Date(value);
@@ -40,11 +86,9 @@ async function shareLinkForZalo(pageUrl, title) {
 
   try {
     await navigator.clipboard.writeText(pageUrl);
-    window.alert(
-      "Đã copy link gallery.\n\nMở Zalo → chọn cuộc trò chuyện → dán link và gửi.\n\n(Nếu trang chia sẻ Zalo không mở được: dùng cách copy này.)",
-    );
+    showToast("Đã copy link gallery. Mở Zalo → chọn cuộc trò chuyện → dán link và gửi.", "success");
   } catch {
-    window.prompt("Sao chép link (Ctrl/Cmd+C), rồi dán vào Zalo:", pageUrl);
+    const fallback = window.prompt("Sao chép link (Ctrl/Cmd+C), rồi dán vào Zalo:", pageUrl);
   }
 }
 
@@ -54,7 +98,8 @@ function resolveImageUrl(url, apiBaseUrl) {
   const normalized = String(url).replace(/\\/g, "/");
   const uploadsIndex = normalized.indexOf("uploads/");
   const relative = uploadsIndex >= 0 ? normalized.slice(uploadsIndex) : normalized;
-  const base = String(apiBaseUrl || "").replace(/\/$/, "");
+  // LUÔN LUÔN dùng port 5000 cho ảnh 
+  const base = "http://localhost:5000";
   const prefix = base ? `${base}/` : "/";
   return `${prefix}${relative}`.replace(/([^:]\/)\/+/g, "$1");
 }
@@ -129,10 +174,115 @@ export default function ApartmentDetailPage({ apartment, apiBaseUrl, onBack, onU
           </button>
           <button
             type="button"
+            onClick={async () => {
+              if (!filteredItems.length) return;
+              showToast(`Đang tải xuống ${filteredItems.length} ảnh...`, "info");
+              try {
+                for (let i = 0; i < filteredItems.length; i++) {
+                  const img = filteredItems[i];
+                  const url = toAbsoluteUrl(img.url || img.image || img);
+                  const res = await fetch(url);
+                  const blob = await res.blob();
+                  const ext = blob.type.split("/")[1] || "jpg";
+                  const fileName = `${titleLine.replace(/[^a-zA-Z0-9_-]+/g, "-")}_${i + 1}.${ext}`;
+                  
+                  const blobUrl = window.URL.createObjectURL(blob);
+                  const a = document.createElement("a");
+                  a.href = blobUrl;
+                  a.download = fileName;
+                  document.body.appendChild(a);
+                  a.click();
+                  window.URL.revokeObjectURL(blobUrl);
+                  a.remove();
+                  
+                  await new Promise(resolve => setTimeout(resolve, 200));
+                }
+                showToast("Đã tải xong ảnh rời!", "success");
+              } catch (error) {
+                console.error("Lỗi tải ảnh rời:", error);
+                showToast("Lỗi khi tải ảnh rời.", "error");
+              }
+            }}
+            className="flex items-center gap-2 rounded-full bg-surface-container px-5 py-2.5 text-on-surface transition-all hover:bg-surface-container-high"
+          >
+            <span className="material-symbols-outlined text-sm">download</span>
+            <span className="text-sm font-medium">Tải về ảnh rời</span>
+          </button>
+          <button
+            type="button"
+            onClick={async () => {
+              if (!filteredItems.length) return;
+              
+              const downloadZipFilesFallback = async () => {
+                showToast("Đang chuẩn bị file ZIP, vui lòng đợi...", "info");
+                try {
+                  const imageIds = filteredItems.map(img => img._id);
+                  const response = await fetch(`${apiBaseUrl.replace(/\/$/, "")}/api/images/zip`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ imageIds }),
+                  });
+                  if (!response.ok) {
+                    const err = await response.json().catch(() => ({}));
+                    throw new Error(err.error || "Lỗi khi tải file ZIP");
+                  }
+                  const blob = await response.blob();
+                  const url = window.URL.createObjectURL(blob);
+                  const a = document.createElement("a");
+                  a.href = url;
+                  a.download = `${titleLine.replace(/[^a-zA-Z0-9_-]+/g, "-")}_${Date.now()}.zip`;
+                  document.body.appendChild(a);
+                  a.click();
+                  window.URL.revokeObjectURL(url);
+                  a.remove();
+                  showToast("Đã tải xong file ZIP!", "success");
+                } catch (err) {
+                  console.error("Lỗi tải zip:", err);
+                  showToast(err.message, "error");
+                }
+              };
+
+              showToast("Đang chuẩn bị gửi ảnh qua Hệ điều hành...", "info");
+              try {
+                const files = await Promise.all(
+                  filteredItems.map(async (img, index) => {
+                    const url = toAbsoluteUrl(img.url || img.image || img);
+                    const res = await fetch(url);
+                    const blob = await res.blob();
+                    const ext = blob.type.split("/")[1] || "jpg";
+                    return new File([blob], `image_${index + 1}.${ext}`, { type: blob.type });
+                  })
+                );
+
+                if (navigator.canShare && navigator.canShare({ files })) {
+                  await navigator.share({
+                    files,
+                    title: `Ảnh ${titleLine}`,
+                  });
+                  showToast("Đã mở menu chia sẻ của máy!", "success");
+                } else {
+                  showToast("Trình duyệt không hỗ trợ Share trực tiếp. Đang tải ZIP thay thế...", "info");
+                  await downloadZipFilesFallback();
+                }
+              } catch (error) {
+                if (error.name !== "AbortError") {
+                  console.error("Lỗi khi share:", error);
+                  showToast("Lỗi khi gửi ảnh. Vui lòng tải ZIP thay thế.", "error");
+                  await downloadZipFilesFallback();
+                }
+              }
+            }}
+            className="flex items-center gap-2 rounded-full bg-surface-container px-5 py-2.5 text-on-surface transition-all hover:bg-surface-container-high"
+          >
+            <span className="material-symbols-outlined text-sm">share</span>
+            <span className="text-sm font-medium">Chia sẻ nhanh (Zalo/App)</span>
+          </button>
+          <button
+            type="button"
             className="flex items-center gap-2 rounded-full border border-outline-variant px-5 py-2.5 text-on-surface transition-all hover:bg-surface-container"
           >
             <span className="material-symbols-outlined text-sm">edit</span>
-            <span className="text-sm font-medium">Edit Info</span>
+            <span className="text-sm font-medium">Sửa thông tin</span>
           </button>
           <button
             type="button"
@@ -140,7 +290,7 @@ export default function ApartmentDetailPage({ apartment, apiBaseUrl, onBack, onU
             className="flex items-center gap-2 rounded-full bg-primary px-6 py-2.5 text-on-primary shadow-sm transition-all hover:opacity-90"
           >
             <span className="material-symbols-outlined text-sm">cloud_upload</span>
-            <span className="text-sm font-medium">Upload More</span>
+            <span className="text-sm font-medium">Thêm ảnh</span>
           </button>
         </div>
       </div>
@@ -203,7 +353,12 @@ export default function ApartmentDetailPage({ apartment, apiBaseUrl, onBack, onU
                     className="group relative overflow-hidden rounded-xl bg-surface-container-lowest shadow-sm transition-all duration-300 hover:scale-[1.02] hover:shadow-xl"
                   >
                     <div className="relative aspect-[4/5]">
-                      <img src={src} alt="Apartment" className="h-full w-full object-cover" />
+                      <img
+                        draggable="true"
+                        src={toAbsoluteUrl(src)}
+                        alt="Apartment"
+                        className="h-full w-full object-cover"
+                      />
                     </div>
                   </button>
                   <p className="mt-2 text-center text-xs text-on-surface-variant">{formatListDate(img.createdAt || img.updatedAt)}</p>
@@ -247,15 +402,30 @@ export default function ApartmentDetailPage({ apartment, apiBaseUrl, onBack, onU
           className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 p-4"
           onClick={() => setSelectedImage("")}
         >
-          <button
-            type="button"
-            className="absolute right-6 top-6 rounded-full bg-white/20 p-2 text-white backdrop-blur-md hover:bg-white/40"
-            onClick={() => setSelectedImage("")}
-          >
-            <span className="material-symbols-outlined">close</span>
-          </button>
+          <div className="absolute right-6 top-6 flex gap-4">
+            <button
+              type="button"
+              className="rounded-full bg-white/20 p-2 text-white backdrop-blur-md transition-colors hover:bg-white/40"
+              title="Sao chép ảnh"
+              onClick={(e) => {
+                e.stopPropagation();
+                copyImageToClipboard(selectedImage);
+              }}
+            >
+              <span className="material-symbols-outlined">content_copy</span>
+            </button>
+            <button
+              type="button"
+              className="rounded-full bg-white/20 p-2 text-white backdrop-blur-md transition-colors hover:bg-white/40"
+              title="Đóng"
+              onClick={() => setSelectedImage("")}
+            >
+              <span className="material-symbols-outlined">close</span>
+            </button>
+          </div>
           <img
-            src={selectedImage}
+            draggable="true"
+            src={toAbsoluteUrl(selectedImage)}
             alt="Preview"
             className="max-h-[92vh] w-auto max-w-[92vw] rounded-lg object-contain"
             onClick={(e) => e.stopPropagation()}

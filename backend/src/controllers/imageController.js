@@ -495,6 +495,61 @@ export const searchImages = async (req, res) => {
   }
 };
 
+export const downloadZip = async (req, res) => {
+  try {
+    const { imageIds } = req.body;
+    if (!Array.isArray(imageIds) || imageIds.length === 0) {
+      return res.status(400).json({ error: "imageIds must be a non-empty array" });
+    }
+
+    const images = await Image.find({ _id: { $in: imageIds } });
+    if (images.length === 0) {
+      return res.status(404).json({ error: "Không tìm thấy ảnh nào." });
+    }
+
+    const zip = new AdmZip();
+    let count = 0;
+
+    for (const img of images) {
+      try {
+        let buffer;
+        if (img.url.startsWith("http")) {
+          const response = await fetch(img.url);
+          if (!response.ok) continue;
+          buffer = Buffer.from(await response.arrayBuffer());
+        } else {
+          // url format: "uploads/filename.jpg"
+          const filePath = path.resolve(img.url);
+          buffer = await fs.readFile(filePath);
+        }
+        
+        const basename = path.basename(img.url).split("?")[0] || "image.jpg";
+        const nameParts = basename.split(".");
+        const ext = nameParts.length > 1 ? `.${nameParts.pop()}` : ".jpg";
+        const baseName = nameParts.join(".");
+        
+        // Đặt tên file tránh trùng
+        zip.addFile(`${baseName}_${count}${ext}`, buffer);
+        count++;
+      } catch (err) {
+        console.error("Lỗi khi đọc file để nén ZIP:", err.message);
+      }
+    }
+
+    if (count === 0) {
+      return res.status(500).json({ error: "Lỗi đọc ảnh (file có thể đã bị xoá)." });
+    }
+
+    const zipBuffer = zip.toBuffer();
+    res.set("Content-Type", "application/zip");
+    res.set("Content-Disposition", `attachment; filename="images_${Date.now()}.zip"`);
+    res.set("Content-Length", zipBuffer.length);
+    return res.send(zipBuffer);
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
+};
+
 export const searchByAI = async (req, res) => {
   try {
     const query = (req.body.query || "").trim();

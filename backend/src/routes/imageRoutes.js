@@ -14,6 +14,7 @@ import {
   updateApartmentStatus,
   uploadSampleImage,
   uploadImage,
+  downloadZip,
 } from "../controllers/imageController.js";
 import { aiImagesUpload } from "../utils/aiUpload.js";
 import { upload } from "../utils/upload.js";
@@ -44,6 +45,9 @@ router.get("/images", getAllImages);
 router.get("/samples", getSampleImages);
 router.get("/samples/folders", getSampleFolders);
 router.post("/samples/folders", express.json(), createSampleFolder);
+
+// Tải file ZIP nhiều ảnh
+router.post("/images/zip", express.json(), downloadZip);
 
 /**
  * @swagger

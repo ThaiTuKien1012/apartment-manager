@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import ApartmentDetailPage from "./ApartmentDetailPage.jsx";
+import ToastContainer from "./components/Toast.jsx";
+import { showToast } from "./utils/toast.js";
 
 /** Mặc định gọi thẳng backend (port 5000). Override: tạo `frontend/.env` với VITE_API_BASE_URL=http://... */
 const API_BASE_URL = (() => {
   const fromEnv = import.meta.env.VITE_API_BASE_URL;
   if (fromEnv) return String(fromEnv).replace(/\/$/, "");
-  return "http://localhost:5000";
+  return ""; // Mặc định rỗng để dùng proxy của Vite trên cùng origin (tránh lỗi cross-origin khi kéo thả)
 })();
 const APARTMENT_TYPES = [
   "1BR (1 Bedroom)",
@@ -29,6 +31,10 @@ function SampleLibraryPage({
   onDeleteSample,
   onMoveSample,
   actionLoadingId,
+  onDeleteAllSamples,
+  onShareAllSamples,
+  onDownloadMultipleSamples,
+  onDeleteFolder,
 }) {
   const inputRef = useRef(null);
 
@@ -104,15 +110,59 @@ function SampleLibraryPage({
               Tạo thư mục
             </button>
           ) : (
-            <button
-              type="button"
-              onClick={() => inputRef.current?.click()}
-              disabled={actionLoadingId === "__samples__"}
-              className="flex shrink-0 items-center justify-center gap-2 self-start rounded-full bg-primary px-8 py-4 font-semibold text-on-primary shadow-xl shadow-primary/10 transition-all duration-300 hover:-translate-y-[2px] disabled:opacity-60 lg:self-auto"
-            >
-              <span className="material-symbols-outlined">upload_file</span>
-              Thêm ảnh
-            </button>
+            <>
+              {currentFolderItems.length > 0 && (
+                <>
+                  <button
+                    type="button"
+                    disabled={actionLoadingId === "__samples__"}
+                    onClick={() => onDownloadMultipleSamples?.(currentFolderItems)}
+                    className="flex shrink-0 items-center justify-center gap-2 self-start rounded-full bg-surface-container px-6 py-4 font-semibold text-on-surface transition-all duration-300 hover:-translate-y-[2px] hover:bg-surface-container-high lg:self-auto"
+                  >
+                    <span className="material-symbols-outlined">download</span>
+                    Tải về ảnh rời
+                  </button>
+                  <button
+                    type="button"
+                    disabled={actionLoadingId === "__samples__"}
+                    onClick={() => onShareAllSamples?.(currentFolderItems)}
+                    className="flex shrink-0 items-center justify-center gap-2 self-start rounded-full bg-surface-container px-6 py-4 font-semibold text-on-surface transition-all duration-300 hover:-translate-y-[2px] hover:bg-surface-container-high lg:self-auto"
+                  >
+                    <span className="material-symbols-outlined">share</span>
+                    Chia sẻ nhanh (Zalo/App)
+                  </button>
+                  <button
+                    type="button"
+                    disabled={actionLoadingId === "__samples__"}
+                    onClick={() => onDeleteAllSamples?.(currentFolderItems)}
+                    className="flex shrink-0 items-center justify-center gap-2 self-start rounded-full bg-error/10 px-6 py-4 font-semibold text-error transition-all duration-300 hover:-translate-y-[2px] hover:bg-error hover:text-white lg:self-auto"
+                  >
+                    <span className="material-symbols-outlined">delete_sweep</span>
+                    Xoá tất cả ảnh
+                  </button>
+                </>
+              )}
+              {selectedFolder !== "General" && (
+                <button
+                  type="button"
+                  disabled={actionLoadingId === "__samples__"}
+                  onClick={() => onDeleteFolder?.(selectedFolder, currentFolderItems)}
+                  className="flex shrink-0 items-center justify-center gap-2 self-start rounded-full bg-error/10 px-6 py-4 font-semibold text-error transition-all duration-300 hover:-translate-y-[2px] hover:bg-error hover:text-white lg:self-auto"
+                >
+                  <span className="material-symbols-outlined">folder_delete</span>
+                  Xoá thư mục
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => inputRef.current?.click()}
+                disabled={actionLoadingId === "__samples__"}
+                className="flex shrink-0 items-center justify-center gap-2 self-start rounded-full bg-primary px-8 py-4 font-semibold text-on-primary shadow-xl shadow-primary/10 transition-all duration-300 hover:-translate-y-[2px] disabled:opacity-60 lg:self-auto"
+              >
+                <span className="material-symbols-outlined">upload_file</span>
+                Thêm ảnh
+              </button>
+            </>
           )}
         </div>
       </div>
@@ -167,20 +217,28 @@ function SampleLibraryPage({
               </p>
             </div>
           ) : (
-            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+            <div className="columns-2 gap-4 space-y-4 sm:columns-3 lg:columns-4 xl:columns-5">
               {currentFolderItems.map((img) => (
                 <div
                   key={img._id}
-                  className="group relative flex flex-col overflow-hidden rounded-2xl bg-surface-container-lowest transition-all duration-300 hover:scale-[1.02] hover:shadow-[0_12px_40px_rgba(42,52,57,0.06)]"
+                  className="group relative flex flex-col overflow-hidden rounded-2xl bg-surface-container-lowest transition-all duration-300 hover:scale-[1.02] hover:shadow-[0_12px_40px_rgba(42,52,57,0.06)] break-inside-avoid"
                 >
-                  <div className="relative aspect-[4/5] overflow-hidden bg-surface-container">
+                  <div className="relative overflow-hidden bg-surface-container">
                     <img
-                      className="h-full w-full object-cover transition-transform duration-700 group-hover:scale-110"
-                      src={toAssetUrl(img.url)}
+                      draggable="true"
+                      className="h-auto w-full object-cover transition-transform duration-700 group-hover:scale-110"
+                      src={toAbsoluteUrl(img.url)}
                       alt={img.description || img._id}
                     />
-                    <div className="absolute inset-0 flex flex-col justify-end bg-gradient-to-t from-black/60 via-black/20 to-transparent p-4 opacity-0 transition-opacity duration-300 group-hover:opacity-100">
-                      <div className="flex items-center gap-2">
+                    <div className="absolute inset-0 flex flex-col justify-end bg-gradient-to-t from-black/60 via-black/20 to-transparent p-4 opacity-0 transition-opacity duration-300 group-hover:opacity-100 pointer-events-none">
+                      <div className="flex items-center gap-2 pointer-events-auto">
+                        <button
+                          type="button"
+                          onClick={() => copyImageToClipboard(img.url)}
+                          className="glass-panel flex-1 rounded-full py-2 text-xs font-bold text-white transition-all hover:bg-white hover:text-primary"
+                        >
+                          Sao chép
+                        </button>
                         <button
                           type="button"
                           onClick={() => window.open(toAssetUrl(img.url), "_blank")}
@@ -215,9 +273,156 @@ const toAssetUrl = (url) => {
   const normalized = String(url).replace(/\\/g, "/");
   const uploadsIndex = normalized.indexOf("uploads/");
   const relative = uploadsIndex >= 0 ? normalized.slice(uploadsIndex) : normalized;
-  const base = API_BASE_URL || "";
+  
+  // LUÔN LUÔN dùng port 5000 cho ảnh (trực tiếp vào backend) 
+  // thay vì dùng port 5173 của frontend qua proxy
+  // => Trình duyệt sẽ có link gốc, không bị lỗi khi kéo
+  const base = "http://localhost:5000";
   const prefix = base ? `${base}/` : "/";
   return `${prefix}${relative}`.replace(/([^:]\/)\/+/g, "$1");
+};
+
+// Đảm bảo ảnh luôn ở dạng absolute URL để hệ điều hành / phần mềm khác nhận diện được
+const toAbsoluteUrl = (url) => {
+  return toAssetUrl(url);
+};
+
+const copyImageToClipboard = async (url) => {
+  try {
+    const absUrl = toAbsoluteUrl(url);
+    const response = await fetch(absUrl);
+    const blob = await response.blob();
+    
+    // ClipboardItem yêu cầu image/png trên một số trình duyệt (đặc biệt là Safari/Mac)
+    // Nếu là jpeg, ta có thể thử viết dưới dạng file html hoặc vẽ ra canvas để lấy png
+    // Nhưng đơn giản nhất là thử nguyên bản, nếu lỗi thì chuyển qua vẽ Canvas để chuyển sang PNG
+    try {
+      const item = new ClipboardItem({ [blob.type]: blob });
+      await navigator.clipboard.write([item]);
+      showToast("Đã sao chép ảnh! Bạn có thể dán (Ctrl+V/Cmd+V) vào khung chat.", "success");
+    } catch (e) {
+      // Fallback: vẽ ra canvas rồi copy PNG
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        canvas.width = img.naturalWidth;
+        canvas.height = img.naturalHeight;
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(img, 0, 0);
+        canvas.toBlob((pngBlob) => {
+          const item = new ClipboardItem({ "image/png": pngBlob });
+          navigator.clipboard.write([item])
+            .then(() => showToast("Đã sao chép ảnh! Bạn có thể dán (Ctrl+V/Cmd+V) vào khung chat.", "success"))
+            .catch(() => showToast("Không thể sao chép. Vui lòng chuột phải vào ảnh -> 'Sao chép hình ảnh'.", "error"));
+        }, "image/png");
+      };
+      img.onerror = () => {
+        showToast("Không thể sao chép. Vui lòng chuột phải vào ảnh -> 'Sao chép hình ảnh'.", "error");
+      };
+      img.src = absUrl;
+    }
+  } catch (error) {
+    console.error("Lỗi copy ảnh:", error);
+    showToast("Không thể sao chép. Vui lòng chuột phải vào ảnh -> 'Sao chép hình ảnh'.", "error");
+  }
+};
+
+const downloadZipFiles = async (imageIds, folderName = "images") => {
+  showToast("Đang chuẩn bị file ZIP, vui lòng đợi...", "info");
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/images/zip`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ imageIds }),
+    });
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(err.error || "Lỗi khi tải file ZIP");
+    }
+    const blob = await response.blob();
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${folderName}_${Date.now()}.zip`;
+    document.body.appendChild(a);
+    a.click();
+    window.URL.revokeObjectURL(url);
+    a.remove();
+    showToast("Đã tải xong file ZIP!", "success");
+  } catch (error) {
+    console.error("Lỗi tải zip:", error);
+    showToast(error.message, "error");
+  }
+};
+
+const downloadMultipleImages = async (images, folderName = "images") => {
+  showToast(`Đang tải xuống ${images.length} ảnh...`, "info");
+  try {
+    for (let i = 0; i < images.length; i++) {
+      const img = images[i];
+      const url = toAbsoluteUrl(img.url || img.image || img);
+      
+      const res = await fetch(url);
+      const blob = await res.blob();
+      const ext = blob.type.split("/")[1] || "jpg";
+      const fileName = `${folderName}_${i + 1}.${ext}`;
+      
+      const blobUrl = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = blobUrl;
+      a.download = fileName;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(blobUrl);
+      a.remove();
+      
+      // Delay nhỏ để tránh trình duyệt block tải xuống hàng loạt
+      await new Promise(resolve => setTimeout(resolve, 200));
+    }
+    showToast("Đã tải xong ảnh!", "success");
+  } catch (error) {
+    console.error("Lỗi tải ảnh rời:", error);
+    showToast("Lỗi khi tải ảnh.", "error");
+  }
+};
+
+const shareMultipleImagesToOS = async (images, fallbackZipName = "images") => {
+  showToast("Đang chuẩn bị gửi ảnh qua Hệ điều hành...", "info");
+  try {
+    const files = await Promise.all(
+      images.map(async (img, index) => {
+        const url = toAbsoluteUrl(img.url || img.image || img);
+        const res = await fetch(url);
+        const blob = await res.blob();
+        const ext = blob.type.split("/")[1] || "jpg";
+        return new File([blob], `image_${index + 1}.${ext}`, { type: blob.type });
+      })
+    );
+
+    if (navigator.canShare && navigator.canShare({ files })) {
+      await navigator.share({
+        files,
+        title: "Chia sẻ ảnh",
+      });
+      showToast("Đã mở menu chia sẻ của máy!", "success");
+    } else {
+      showToast("Trình duyệt không hỗ trợ Share trực tiếp. Đang tải ZIP thay thế...", "info");
+      const ids = images.map(i => i._id || i.id).filter(Boolean);
+      if (ids.length > 0) {
+        await downloadZipFiles(ids, fallbackZipName);
+      }
+    }
+  } catch (error) {
+    if (error.name !== "AbortError") {
+      console.error("Lỗi khi share:", error);
+      showToast("Lỗi khi gửi ảnh. Vui lòng tải ZIP thay thế.", "error");
+      const ids = images.map(i => i._id || i.id).filter(Boolean);
+      if (ids.length > 0) {
+        await downloadZipFiles(ids, fallbackZipName);
+      }
+    }
+  }
 };
 
 const toRelativeTime = (value) => {
@@ -306,7 +511,11 @@ function ApartmentCard({ apartment, onOpenGallery, onUploadMore, onEdit, onDelet
       className="group cursor-pointer overflow-hidden rounded-xl bg-surface-container-lowest shadow-sm transition-all duration-300 hover:scale-[1.02] hover:shadow-xl hover:shadow-slate-200/50 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
     >
       <div className="relative aspect-[16/10] overflow-hidden">
-        <img className="h-full w-full object-cover transition-transform duration-700 group-hover:scale-110" src={apartment.image} alt={apartment.name} />
+        <img
+          className="h-full w-full object-cover transition-transform duration-700 group-hover:scale-110"
+          src={toAbsoluteUrl(apartment.image)}
+          alt={apartment.name}
+        />
         {apartment.featured ? (
           <div className="absolute right-4 top-4 rounded-full bg-white/80 px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-cyan-800 backdrop-blur-md">
             Featured
@@ -1279,8 +1488,12 @@ export default function App() {
       if (!response.ok) return;
       const data = await response.json().catch(() => []);
       const list = Array.isArray(data) ? data : [];
-      const normalized = Array.from(new Set(["General", ...list.map((x) => String(x || "").trim()).filter(Boolean)]));
-      setSampleFolders(normalized);
+      setSampleFolders((prev) => {
+        // Giữ lại các thư mục đang có trong session (bao gồm cả thư mục rỗng)
+        // và gộp thêm các thư mục từ backend trả về
+        const normalized = Array.from(new Set(["General", ...prev, ...list.map((x) => String(x || "").trim()).filter(Boolean)]));
+        return normalized;
+      });
     } catch {
       // ignore
     }
@@ -1364,6 +1577,65 @@ export default function App() {
           await fetchSamples();
         } catch (e) {
           setError(e.message || "Không xoá được ảnh mẫu.");
+        } finally {
+          setActionLoadingCode("");
+        }
+      },
+    });
+  };
+
+  const handleDeleteAllSamples = async (items) => {
+    if (!items || items.length === 0) return;
+    setModalConfig({
+      type: "CONFIRM",
+      title: "Xoá tất cả ảnh",
+      message: `Xoá tất cả ${items.length} ảnh trong thư mục này? Hành động này không thể hoàn tác.`,
+      onConfirm: async () => {
+        setActionLoadingCode("__samples__");
+        setError("");
+        try {
+          await Promise.all(
+            items.map(async (img) => {
+              const response = await fetch(`${API_BASE_URL}/api/samples/${encodeURIComponent(img._id)}`, { method: "DELETE" });
+              if (!response.ok) throw new Error("Lỗi khi xoá");
+            })
+          );
+          await fetchSampleFolders();
+          await fetchSamples();
+        } catch (e) {
+          setError("Không xoá được một số ảnh mẫu.");
+        } finally {
+          setActionLoadingCode("");
+        }
+      },
+    });
+  };
+
+  const handleDeleteFolder = async (folderName, itemsInFolder) => {
+    setModalConfig({
+      type: "CONFIRM",
+      title: "Xoá thư mục",
+      message: `Bạn có chắc muốn xoá thư mục "${folderName}"? ${
+        itemsInFolder.length > 0 ? `Toàn bộ ${itemsInFolder.length} ảnh bên trong cũng sẽ bị xoá.` : "Thư mục này đang trống."
+      }`,
+      onConfirm: async () => {
+        setActionLoadingCode("__samples__");
+        setError("");
+        try {
+          if (itemsInFolder.length > 0) {
+            await Promise.all(
+              itemsInFolder.map(async (img) => {
+                const response = await fetch(`${API_BASE_URL}/api/samples/${encodeURIComponent(img._id)}`, { method: "DELETE" });
+                if (!response.ok) throw new Error("Lỗi khi xoá");
+              })
+            );
+          }
+          // Remove folder from state and go back to root
+          setSampleFolders((prev) => prev.filter((f) => f !== folderName));
+          setSelectedSampleFolder("all");
+          await fetchSamples();
+        } catch (e) {
+          setError("Có lỗi khi xoá thư mục.");
         } finally {
           setActionLoadingCode("");
         }
@@ -1455,6 +1727,7 @@ export default function App() {
 
   return (
     <div className="bg-surface text-on-surface">
+      <ToastContainer />
       <aside className="fixed left-0 top-0 z-40 flex h-screen w-64 flex-col bg-slate-50 py-8 pr-4">
         <div className="mb-10 px-8">
           <h2 className="text-xl font-extrabold tracking-tight text-cyan-900">Editorial Suites</h2>
@@ -1580,6 +1853,10 @@ export default function App() {
             onDeleteSample={deleteSample}
             onMoveSample={moveSampleToFolder}
             actionLoadingId={actionLoadingCode}
+            onDeleteAllSamples={handleDeleteAllSamples}
+            onShareAllSamples={(items) => shareMultipleImagesToOS(items, selectedSampleFolder)}
+            onDownloadMultipleSamples={(items) => downloadMultipleImages(items, selectedSampleFolder)}
+            onDeleteFolder={(folderName, items) => handleDeleteFolder(folderName, items)}
           />
         ) : (
           <ManagePage
